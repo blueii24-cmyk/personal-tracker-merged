@@ -38,19 +38,25 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-raised)] transition-[width] duration-200 md:flex ${
-        collapsed ? "w-[76px]" : "w-64"
+      className={`app-sidebar sticky top-0 hidden h-screen shrink-0 flex-col border-r transition-[width] duration-200 md:flex ${
+        collapsed ? "w-[76px]" : "w-[264px]"
       }`}
     >
-      <div className="flex h-16 items-center gap-2.5 border-b border-[var(--border-subtle)] px-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
-          <Sparkles size={16} />
+      <div className={`flex h-[76px] items-center gap-3 border-b px-4 ${collapsed ? "justify-center" : ""}`}>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-brand-500 text-white shadow-[0_5px_18px_-7px_rgba(79,190,119,0.8)]">
+          <Sparkles size={18} strokeWidth={2.2} />
         </div>
-        {!collapsed && <span className="truncate text-[15px] font-semibold text-[var(--text-primary)]">{APP_NAME}</span>}
+        {!collapsed && (
+          <div className="min-w-0">
+            <span className="block truncate text-[15px] font-semibold tracking-[-0.025em] text-[var(--text-primary)]">{APP_NAME}</span>
+            <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-tertiary)]">Your daily system</span>
+          </div>
+        )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4">
-        <ul className="flex flex-col gap-1">
+      <nav className="flex-1 overflow-y-auto scrollbar-thin px-3 py-6">
+        {!collapsed && <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-tertiary)]">Workspace</p>}
+        <ul className="flex flex-col gap-1.5">
           {NAV_ITEMS.map((item) => {
             const active = isActivePath(pathname, item.href);
             const Icon = item.icon;
@@ -59,14 +65,14 @@ export function Sidebar() {
                 <Link
                   href={item.href}
                   title={collapsed ? item.label : undefined}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                    active
-                      ? "bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-400"
-                      : "text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)]"
-                  }`}
+                  aria-current={active ? "page" : undefined}
+                  className={`sidebar-link flex items-center gap-3 px-3 py-3 text-sm font-medium ${
+                    active ? "sidebar-link-active" : "sidebar-link-inactive"
+                  } ${collapsed ? "justify-center" : ""}`}
                 >
-                  <Icon size={18} strokeWidth={active ? 2.3 : 2} className="shrink-0" />
+                  <Icon size={18} strokeWidth={active ? 2.4 : 1.9} className="shrink-0" />
                   {!collapsed && <span className="truncate">{item.label}</span>}
+                  {!collapsed && active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand-400" />}
                 </Link>
               </li>
             );
@@ -74,20 +80,20 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="border-t border-[var(--border-subtle)] p-3">
+      <div className="border-t p-3">
         <Link
           href="/settings"
-          className={`flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-[var(--surface-sunken)] ${
+          className={`flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-white/[0.055] ${
             collapsed ? "justify-center" : ""
           }`}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-brand-300/20 bg-brand-500/15 text-sm font-semibold text-brand-300">
             {initials}
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-[var(--text-primary)]">{settings?.displayName ?? "Loading\u2026"}</p>
-              <p className="truncate text-xs text-[var(--text-tertiary)]">View settings</p>
+              <p className="truncate text-sm font-medium text-[var(--text-primary)]">{settings?.displayName ?? "Loading…"}</p>
+              <p className="truncate text-xs text-[var(--text-tertiary)]">Personal space · Settings</p>
             </div>
           )}
         </Link>
@@ -95,10 +101,10 @@ export function Sidebar() {
           type="button"
           onClick={toggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-[var(--text-tertiary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)]"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:bg-white/[0.055] hover:text-[var(--text-primary)]"
         >
           {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-          {!collapsed && <span>Collapse</span>}
+          {!collapsed && <span>Collapse sidebar</span>}
         </button>
       </div>
     </aside>

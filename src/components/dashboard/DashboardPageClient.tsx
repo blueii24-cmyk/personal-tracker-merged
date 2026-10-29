@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MessageCircle, Sparkles } from "lucide-react";
+import { ArrowUpRight, MessageCircle, Sparkles } from "lucide-react";
 import { ErrorState } from "@/components/ui/Feedback";
 import { BulkingOverview } from "./BulkingOverview";
 import { BudgetOverview } from "./BudgetOverview";
@@ -22,34 +22,46 @@ export function DashboardPageClient() {
   const { summary, summaryLoading, summaryError, refreshSummary, settings } = useTrackerStore();
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-soft sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div>
-          <p className="text-sm text-[var(--text-tertiary)]">{formatDateLabel(todayISODate())}</p>
-          <h1 className="mt-1 text-xl font-semibold text-[var(--text-primary)] sm:text-2xl">
+    <div className="flex flex-col gap-7 animate-fade-in">
+      <section className="dashboard-hero">
+        <div className="dashboard-hero-copy">
+          <p className="dashboard-eyebrow">
+            <span className="dashboard-eyebrow-dot" />
+            YOUR DAY <span aria-hidden="true">/</span> {formatDateLabel(todayISODate())}
+          </p>
+          <h1 className="dashboard-heading">
             {getGreeting()}
-            {settings ? `, ${settings.displayName}` : ""}
+            {settings?.displayName ? <span>, {settings.displayName.split(" ")[0]}.</span> : <span>.</span>}
           </h1>
-          <p className="mt-1.5 max-w-lg text-sm text-[var(--text-secondary)]">
+          <p className="dashboard-lede">
             {summary
-              ? `You've logged ~${Math.round(summary.caloriesConsumed)} kcal and spent ${summary.recentTransactions.length ? "some" : "nothing"} today. Here's where things stand.`
-              : "Here's a quick look at your day."}
+              ? `You've logged about ${Math.round(summary.caloriesConsumed).toLocaleString()} kcal today. Keep your nutrition, weight, and spending moving in the right direction.`
+              : "Your meals, weight, and spending — all in one calm, clear place."}
           </p>
         </div>
-        <Link
-          href="/chat"
-          className="flex items-center gap-2 self-start rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700 sm:self-auto"
-        >
-          <MessageCircle size={16} />
-          Ask the assistant
+        <Link href="/chat" className="dashboard-primary-action">
+          <MessageCircle size={17} />
+          <span>Log with AI</span>
+          <ArrowUpRight size={16} />
         </Link>
-      </div>
+      </section>
 
       {summaryError && !summary ? (
         <ErrorState title="Couldn't load your dashboard" description={summaryError} onRetry={refreshSummary} />
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <div className="flex items-end justify-between gap-4 px-1">
+            <div>
+              <h2 className="text-lg font-semibold tracking-[-0.035em] text-[var(--text-primary)] sm:text-xl">Your overview</h2>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">Nutrition and money, side by side.</p>
+            </div>
+            <span className="mb-0.5 hidden items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-brand-700 dark:border-brand-400/15 dark:bg-brand-500/10 dark:text-brand-300 sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
+              Live snapshot
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
             <BulkingOverview />
             <BudgetOverview />
           </div>
@@ -65,20 +77,19 @@ export function DashboardPageClient() {
 
 function AiPanel() {
   return (
-    <Link
-      href="/chat"
-      className="group flex items-center gap-4 rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-raised)] p-4 transition-colors hover:border-brand-400 hover:bg-brand-50/40 dark:hover:bg-brand-500/5 sm:p-5"
-    >
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
-        <Sparkles size={18} />
+    <Link href="/chat" className="ai-quick-entry group">
+      <div className="ai-quick-entry-icon">
+        <Sparkles size={20} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-[var(--text-primary)]">Log something naturally</p>
-        <p className="mt-0.5 truncate text-sm text-[var(--text-secondary)]">
-          Try \u201cI ate 2 eggs and a banana\u201d or \u201cI spent \u20b960 on travel\u201d \u2014 the assistant updates your dashboard instantly.
+        <p className="text-sm font-semibold tracking-[-0.015em] text-[var(--text-primary)]">Just say what happened</p>
+        <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+          “I ate 2 eggs and a banana” or “I spent ₹60 on travel” — write it naturally and let your tracker do the busywork.
         </p>
       </div>
-      <span className="shrink-0 text-sm font-medium text-brand-600 group-hover:underline dark:text-brand-400">Open chat</span>
+      <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-brand-700 transition-transform group-hover:translate-x-0.5 dark:text-brand-300">
+        Try it <ArrowUpRight size={16} />
+      </span>
     </Link>
   );
 }
