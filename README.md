@@ -18,6 +18,16 @@ npm run dev
 
 The demo is intentionally explicit: it uses the in-memory mock service, not Supabase or an actual AI provider. It is useful for testing UI and interactions. Demo records reset when the app process/page runtime is restarted.
 
+## GitHub Pages deployment
+
+Pushing to `main` triggers the workflow at `.github/workflows/deploy-pages.yml`. It builds a static export for:
+
+`https://blueii24-cmyk.github.io/personal-tracker-merged/`
+
+GitHub Pages only hosts static files, so this deployment runs in **demo mode**. The workflow temporarily excludes `src/app/api` from the build output only; the API source files remain in this repository. Tracker changes are held in browser memory and do not persist after a full reload. The demo chat uses the local deterministic interpreter and does not call an external AI provider.
+
+The GitHub Pages build is not a replacement for the full Next.js server deployment. Use a Node.js host such as Vercel for API routes and database-backed behavior.
+
 ## Optional private local database mode
 
 The imported Sonnet-style Drizzle store is a **single shared workspace** and currently has no user authentication or per-user database ownership. Therefore all database API routes are disabled in production builds. Do not expose this mode on a public deployment.
