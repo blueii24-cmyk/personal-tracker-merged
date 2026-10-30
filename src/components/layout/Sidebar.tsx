@@ -43,8 +43,8 @@ export function Sidebar() {
       }`}
     >
       <div className={`flex h-[76px] items-center gap-3 border-b px-4 ${collapsed ? "justify-center" : ""}`}>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-brand-500 text-white shadow-[0_5px_18px_-7px_rgba(79,190,119,0.8)]">
-          <Sparkles size={18} strokeWidth={2.2} />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] border border-brand-200/70 bg-brand-100 text-brand-700">
+          <Sparkles size={18} strokeWidth={2.1} />
         </div>
         {!collapsed && (
           <div className="min-w-0">
@@ -70,9 +70,9 @@ export function Sidebar() {
                     active ? "sidebar-link-active" : "sidebar-link-inactive"
                   } ${collapsed ? "justify-center" : ""}`}
                 >
-                  <Icon size={18} strokeWidth={active ? 2.4 : 1.9} className="shrink-0" />
+                  <Icon size={18} strokeWidth={active ? 2.35 : 1.9} className="shrink-0" />
                   {!collapsed && <span className="truncate">{item.label}</span>}
-                  {!collapsed && active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand-400" />}
+                  {!collapsed && active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand-500" />}
                 </Link>
               </li>
             );
@@ -83,11 +83,11 @@ export function Sidebar() {
       <div className="border-t p-3">
         <Link
           href="/settings"
-          className={`flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-white/[0.055] ${
+          className={`flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-[var(--surface-sunken)] ${
             collapsed ? "justify-center" : ""
           }`}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-brand-300/20 bg-brand-500/15 text-sm font-semibold text-brand-300">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-brand-200 bg-brand-100 text-sm font-semibold text-brand-700 dark:border-brand-400/20 dark:bg-brand-500/15 dark:text-brand-200">
             {initials}
           </div>
           {!collapsed && (
@@ -101,7 +101,7 @@ export function Sidebar() {
           type="button"
           onClick={toggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:bg-white/[0.055] hover:text-[var(--text-primary)]"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-xs font-medium text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)]"
         >
           {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
           {!collapsed && <span>Collapse sidebar</span>}
