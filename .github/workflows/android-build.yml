@@ -58,6 +58,10 @@ env:
   NODE_VERSION: '22'
   JAVA_VERSION: '21'
   ANDROID_BUILD_MODE: ${{ inputs.build_type || 'debug' }}
+  # Browser-safe project defaults. Repository Variables remain the override for rotation or another environment.
+  NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL || 'https://vvkdqlnbtkdjqmhybatq.supabase.co' }}
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_BgDB_2-NcplpClCJVJ3Gww_Bre0b6xM' }}
+  NEXT_PUBLIC_AUTH_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_AUTH_REDIRECT_URL || 'https://personal-tracker-merged.vercel.app' }}
 
 jobs:
   android:
@@ -71,9 +75,6 @@ jobs:
       - name: Validate required configuration without exposing values
         shell: bash
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_AUTH_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_AUTH_REDIRECT_URL }}
           ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -143,18 +144,11 @@ jobs:
 
       - name: Export web assets and build Android package
         shell: bash
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_AUTH_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_AUTH_REDIRECT_URL }}
         run: node scripts/android.mjs "$ANDROID_BUILD_MODE"
 
       - name: Verify package, signature, application ID, and packaged configuration
         id: package
         shell: bash
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
           shopt -s nullglob

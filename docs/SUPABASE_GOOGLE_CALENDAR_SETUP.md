@@ -87,7 +87,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<PUBLISHABLE_KEY>
 
 - **Local web:** use `.env.local`, then restart/rebuild. Next.js inlines `NEXT_PUBLIC_*` values at build time.
 - **Vercel:** configure the existing Personal Tracker project for Production and, where needed, Preview. Redeploy after changing build-time values. Do not create or substitute an unrelated Vercel project.
-- **Android/GitHub Actions:** the workflow reads repository **variables** named `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and optionally `NEXT_PUBLIC_AUTH_REDIRECT_URL`. Rebuild the APK after changing them; an already-built APK retains its old inlined configuration.
+- **Android/GitHub Actions:** the workflow includes the browser-safe Personal Tracker production defaults. Repository **variables** named `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_AUTH_REDIRECT_URL` override those defaults when set. Rebuild the APK after changing them; an already-built APK retains its old inlined configuration.
 - **No frontend service key:** neither Vercel nor Android needs a Supabase secret/service-role key for the current tracker implementation.
 - **`DATABASE_URL`:** optional for the hosting template's `/api/health` only. Its absence is not a Supabase-sync configuration error.
 
