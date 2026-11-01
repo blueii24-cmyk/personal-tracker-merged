@@ -2,6 +2,16 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/android-build.yml"
+      - "src/**"
+      - "scripts/**"
+      - "android/**"
+      - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: read
