@@ -1,7 +1,7 @@
 /**
- * Shared domain types. Field names mirror the Supabase schema in
- * supabase/migrations/20261029000000_initial_schema.sql (camelCase here, snake_case there)
- * so a Supabase-backed service can map rows with no UI changes.
+ * Shared domain types. The local-first Supabase mapping lives in
+ * supabase/migrations/20261101000000_tracker_sync.sql (camelCase here, snake_case there).
+ * The synced service keeps the same local domain shape whether online, offline, or signed out.
  */
 import type { AiActionResult } from './api';
 import type { AiProviderId } from '../lib/ai/provider';
@@ -82,10 +82,7 @@ export interface Transaction {
   category: TransactionCategory;
   description: string;
   merchant: string | null;
-  /**
-   * Optional free-text note. NOTE: the starter schema has no `notes` column on
-   * `money_transactions`; add one before wiring Supabase (see README).
-   */
+  /** Optional free-text note; included in local backups and Supabase sync. */
   notes: string | null;
   occurredAt: IsoDateTime;
   source: RecordSource;
@@ -109,8 +106,8 @@ export type WeighInInput = Omit<WeighIn, 'id' | 'source'>;
 export type WeightUnit = 'kg' | 'lb';
 
 /**
- * Flattened view of `profiles` + `user_settings`.
- * `weightUnit` is a display preference with no column yet (kept in this browser).
+ * Settings shape used by the UI and local store. Supabase sync maps it to one `user_settings` row;
+ * AI credentials remain outside this shape and are never synchronized.
  */
 export interface UserSettings {
   displayName: string;

@@ -7,6 +7,7 @@ offline. Optionally, sign in to keep a synced cloud copy (Supabase) and connect 
 - Audit, fixes, test results, limitations: [docs/AUDIT.md](docs/AUDIT.md)
 - Cloud sync setup (Supabase, SQL, env vars, RLS tests, conflict policy): [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)
 - Optional Google Calendar setup: [docs/GOOGLE_CALENDAR_SETUP.md](docs/GOOGLE_CALENDAR_SETUP.md)
+- Consolidated backend, Android and Vercel release checklist: [docs/SUPABASE_GOOGLE_CALENDAR_SETUP.md](docs/SUPABASE_GOOGLE_CALENDAR_SETUP.md)
 - Google Play release, signing, Data Safety, privacy policy template: [docs/ANDROID_RELEASE.md](docs/ANDROID_RELEASE.md)
 
 ## Web: run and build
