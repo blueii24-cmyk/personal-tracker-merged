@@ -57,14 +57,15 @@ export function AiSection() {
   useEffect(() => {
     const d = draft;
     const apiKey = key.trim() || ai.getKey();
-    if (!apiKey || keyProblem(apiKey) || (d.providerId === 'openai-compatible' && baseUrlError(d.baseUrl))) {
-      setListing(null);
-      setDetect({ state: 'idle' });
-      return;
-    }
+    const canDetect = Boolean(apiKey) && !keyProblem(apiKey) && !(d.providerId === 'openai-compatible' && baseUrlError(d.baseUrl));
     const ctrl = new AbortController();
-    setDetect({ state: 'loading' });
     const timer = window.setTimeout(async () => {
+      if (!canDetect) {
+        setListing(null);
+        setDetect({ state: 'idle' });
+        return;
+      }
+      setDetect({ state: 'loading' });
       try {
         const l = await fetchModels({ providerId: d.providerId, baseUrl: d.baseUrl }, apiKey, ctrl.signal);
         if (ctrl.signal.aborted) return;
@@ -75,13 +76,13 @@ export function AiSection() {
         }
         setDetect({ state: 'idle' });
         const best = l.best.id;
-        if (draftRef.current.autoModel) setDraft((x) => ({ ...x, model: best }));
+        if (d.autoModel) setDraft((x) => ({ ...x, model: best }));
       } catch (err) {
         if (ctrl.signal.aborted) return;
         setListing(null);
         setDetect({ state: 'error', message: toTrackerError(err).message });
       }
-    }, 700);
+    }, canDetect ? 700 : 0);
     return () => {
       window.clearTimeout(timer);
       ctrl.abort();
