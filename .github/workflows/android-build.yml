@@ -62,7 +62,7 @@ jobs:
             echo "No debug APK was generated."
             exit 1
           fi
-          printf 'Generated APK: %s\n' "\${apks[@]}"
+          printf 'Generated APK: %s\n' "${apks[@]}"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
