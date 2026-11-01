@@ -9,6 +9,9 @@ export const SCOPE_EVENTS_READ = 'https://www.googleapis.com/auth/calendar.event
 export const SCOPE_EVENTS_WRITE = 'https://www.googleapis.com/auth/calendar.events.owned';
 export const READ_SCOPES = [SCOPE_CALENDAR_LIST, SCOPE_EVENTS_READ];
 
+/** Revision-aware tombstone for an imported copy; never sent to Google and never applied to app-owned events. */
+export const googleCopyTombstone = (baseRev: number, at: string) => ({ deleted_at: at, updated_at: at, base_rev: baseRev });
+
 export const b64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes));
 export const unb64 = (s: string): Uint8Array => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 export const b64url = (bytes: Uint8Array): string => b64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

@@ -6,7 +6,7 @@ import { dateKeyInTz } from '@/tracker/lib/formatting/dates';
 import { buildEvent, eventsOnDate, monthGrid, normalizeEvent, trackerItemsOnDate, validateEventInput, weekdayOrder } from './calendar';
 import { DEFAULT_CALENDAR_PREFS, type CalendarEventInput } from '@/tracker/types/calendar';
 import {
-  addDaysKey, allowedReturn, buildAuthUrl, classifyGoogleError, decryptToken, encryptToken, hasWriteScope, localEventId, pkcePair, toAppEvent, toGoogleBody,
+  addDaysKey, allowedReturn, buildAuthUrl, classifyGoogleError, decryptToken, encryptToken, googleCopyTombstone, hasWriteScope, localEventId, pkcePair, toAppEvent, toGoogleBody,
 } from '../../../../supabase/functions/_shared/google-core';
 
 class FakeStorage {
@@ -212,6 +212,13 @@ describe('Google Calendar core (pure parts)', () => {
     expect(toGoogleBody({ title: 'T', notes: null, location: null, all_day: true, start_date: '2026-03-10', end_date: '2026-03-11', starts_at: null, ends_at: null }, TZ)).toMatchObject({ start: { date: '2026-03-10' }, end: { date: '2026-03-12' } });
     expect(await localEventId('cal', 'ev')).toBe(await localEventId('cal', 'ev'));
     expect(await localEventId('cal', 'ev')).not.toBe(await localEventId('cal2', 'ev'));
+  });
+  it('tombstones imported copies with their observed revision for conflict-safe sync', () => {
+    expect(googleCopyTombstone(17, '2026-11-01T10:00:00.000Z')).toEqual({
+      deleted_at: '2026-11-01T10:00:00.000Z',
+      updated_at: '2026-11-01T10:00:00.000Z',
+      base_rev: 17,
+    });
   });
   it('classifies failures so the function can recover', () => {
     expect(classifyGoogleError(410, {}).kind).toBe('sync_token_expired');

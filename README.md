@@ -38,10 +38,13 @@ node scripts/android.mjs sync      # just rebuild the web bundle and copy it int
 ```
 
 The script builds the static web bundle (`scripts/build-android-web.mjs` → `out/`), runs `npx cap sync android`, then Gradle.
-The release bundle is **unsigned** unless `android/keystore.properties` exists (see the release guide).
+The release bundle is **unsigned** unless `android/keystore.properties` exists (see the release guide). GitHub Actions creates that file only
+temporarily for `release`/`bundle`; its workflow also requires both public Supabase variables and verifies them inside every APK/AAB. See
+`docs/ANDROID_RELEASE.md` for the exact Variables, signing Secrets, workflow modes, and artifact names.
 
 ### Install the debug APK on your phone
-1. Copy `personal-tracker-1.0.0-debug.apk` to the phone (USB, Drive, or `adb install -r <file>`).
+1. Copy `app-debug.apk` from `android/app/build/outputs/apk/debug/` (or extract the `Personal-Tracker-Debug-APK` Actions artifact) to the
+   phone (USB, Drive, or `adb install -r <file>`).
 2. Open it from Files and allow “Install unknown apps” for that file manager when asked.
 3. Open **Personal Tracker**.
 

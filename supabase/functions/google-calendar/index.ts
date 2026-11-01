@@ -5,7 +5,7 @@
 // @ts-nocheck - Deno runtime, type-checked by the Supabase CLI rather than by the app's tsconfig.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
-  allowedReturn, buildAuthUrl, classifyGoogleError, decryptToken, encryptToken, hasWriteScope, localEventId, pkcePair,
+  allowedReturn, buildAuthUrl, classifyGoogleError, decryptToken, encryptToken, googleCopyTombstone, hasWriteScope, localEventId, pkcePair,
   randomState, sha256Hex, toAppEvent, toGoogleBody,
 } from '../_shared/google-core.ts';
 
@@ -67,6 +67,20 @@ async function getConn(userId: string) {
 async function userTz(userId: string): Promise<string> {
   const { data } = await admin.from('user_settings').select('timezone').eq('user_id', userId).maybeSingle();
   return (data?.timezone as string) || 'Asia/Kolkata';
+}
+
+/** Tombstone only imported copies. App-owned events and every event in Google are untouched. */
+async function tombstoneGoogleCopies(userId: string, keepCalendarId?: string) {
+  let query = admin.from('calendar_events').select('id, rev').eq('user_id', userId).eq('origin', 'google').is('deleted_at', null);
+  if (keepCalendarId) query = query.neq('google_calendar_id', keepCalendarId);
+  const { data: copies, error: readError } = await query;
+  if (readError) throw Object.assign(new Error('google_copy_cleanup_failed'), { code: 'google_copy_cleanup_failed' });
+  const at = new Date().toISOString();
+  // Write base_rev per row: the sync revision guard intentionally rejects a bulk update without it.
+  for (const copy of copies ?? []) {
+    const { error } = await admin.from('calendar_events').update(googleCopyTombstone(Number(copy.rev), at)).eq('user_id', userId).eq('id', copy.id).eq('origin', 'google');
+    if (error) throw Object.assign(new Error('google_copy_cleanup_failed'), { code: 'google_copy_cleanup_failed' });
+  }
 }
 
 async function callback(req: Request, url: URL): Promise<Response> {
@@ -231,8 +245,9 @@ Deno.serve(async (req) => {
       const found = res.ok ? (body.items ?? []).find((c: any) => c.id === id) : null;
       if (!found) return fail(req, 400, 'invalid_calendar', 'That calendar isn’t available to this Google account.');
       // Switching calendars removes only the app's COPIES of the previous calendar's events.
-      await admin.from('calendar_events').update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('user_id', userId).eq('origin', 'google').neq('google_calendar_id', id).is('deleted_at', null);
-      await admin.from('google_calendar_connections').update({ selected_calendar_id: id, selected_calendar_name: found.summaryOverride ?? found.summary ?? id, sync_token: null, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      await tombstoneGoogleCopies(userId, id);
+      const { error } = await admin.from('google_calendar_connections').update({ selected_calendar_id: id, selected_calendar_name: found.summaryOverride ?? found.summary ?? id, sync_token: null, updated_at: new Date().toISOString() }).eq('user_id', userId);
+      if (error) throw Object.assign(new Error('calendar_selection_failed'), { code: 'calendar_selection_failed' });
       return json(req, 200, { ok: true });
     }
     if (action === 'set-push') {
@@ -247,12 +262,14 @@ Deno.serve(async (req) => {
     }
     if (action === 'disconnect') {
       if (input.confirm !== true) return fail(req, 400, 'confirmation_required', 'Confirm to disconnect Google Calendar.');
+      // Finish local cleanup before deleting the connection so a database failure remains retryable.
+      await tombstoneGoogleCopies(userId);
       try {
         const refresh = await decryptToken(conn.encrypted_refresh_token, ENC_KEY);
         await fetch('https://oauth2.googleapis.com/revoke', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: refresh }) });
       } catch { /* best effort: the stored token is deleted below either way */ }
-      await admin.from('google_calendar_connections').delete().eq('user_id', userId);
-      await admin.from('calendar_events').update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('user_id', userId).eq('origin', 'google').is('deleted_at', null);
+      const { error } = await admin.from('google_calendar_connections').delete().eq('user_id', userId);
+      if (error) throw Object.assign(new Error('google_disconnect_failed'), { code: 'google_disconnect_failed' });
       return json(req, 200, { ok: true });
     }
     return fail(req, 400, 'unknown_action', 'Unknown action.');
