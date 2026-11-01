@@ -37,18 +37,28 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
   const [historyError, setHistoryError] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
   const activeRef = useRef<string | null>(null);
-  activeRef.current = activeSessionId;
+  const updateActive = useCallback((id: string | null) => {
+    activeRef.current = id;
+    setActive(id);
+  }, []);
 
-  const loadSessions = useCallback(async () => {
+  const fetchSessions = useCallback(async (): Promise<ChatSession[] | null> => {
     try {
-      setSessions(await service.getChatSessions());
+      return await service.getChatSessions();
     } catch {
       /* the list is a convenience; the chat itself still works */
+      return null;
     }
   }, [service]);
   useEffect(() => {
-    void loadSessions();
-  }, [loadSessions]);
+    let cancelled = false;
+    void fetchSessions().then((nextSessions) => {
+      if (!cancelled && nextSessions) setSessions(nextSessions);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSessions]);
 
   const patchMessage = useCallback((id: string, patch: Partial<ChatMessage>) => {
     setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...patch } : m)));
@@ -63,7 +73,7 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
       try {
         const request: AiChatRequest = { sessionId: userMessage.sessionId ?? undefined, clientMessageId: userMessage.clientMessageId!, message: userMessage.content };
         const reply = await (sender ?? ((r, o) => service.sendChatMessage(r, o)))(request, { signal: ctl.signal });
-        setActive(reply.sessionId);
+        updateActive(reply.sessionId);
         setMessages((ms) => [
           ...ms.map((m) => (m.id === userMessage.id ? { ...m, id: reply.userMessageId, sessionId: reply.sessionId, status: 'complete' as const, error: undefined } : m)),
           {
@@ -77,7 +87,7 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
           },
         ]);
         if (reply.dashboardInvalidation.length > 0) await onRecordsChanged().catch(() => undefined);
-        void loadSessions();
+        void fetchSessions().then((nextSessions) => { if (nextSessions) setSessions(nextSessions); });
       } catch (e) {
         const err = toTrackerError(e);
         const info: ChatErrorInfo = isAbortError(e)
@@ -89,7 +99,7 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
         setSending(false);
       }
     },
-    [service, sender, patchMessage, onRecordsChanged, loadSessions],
+    [service, sender, patchMessage, onRecordsChanged, fetchSessions, updateActive],
   );
 
   const send = useCallback(
@@ -124,15 +134,15 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
 
   const newChat = useCallback(() => {
     controller.current?.abort();
-    setActive(null);
+    updateActive(null);
     setMessages([]);
     setHistoryError(null);
-  }, []);
+  }, [updateActive]);
 
   const openSession = useCallback(
     (id: string) => {
       controller.current?.abort();
-      setActive(id);
+      updateActive(id);
       setMessages([]);
       setHistoryError(null);
       setLoadingHistory(true);
@@ -146,16 +156,17 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
         })
         .finally(() => setLoadingHistory(false));
     },
-    [service],
+    [service, updateActive],
   );
 
   const deleteSession = useCallback(
     async (id: string) => {
       await service.deleteChatSession(id);
       if (activeRef.current === id) newChat();
-      await loadSessions();
+      const nextSessions = await fetchSessions();
+      if (nextSessions) setSessions(nextSessions);
     },
-    [service, newChat, loadSessions],
+    [service, newChat, fetchSessions],
   );
 
   const value = useMemo<ChatApi>(
