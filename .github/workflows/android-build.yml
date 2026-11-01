@@ -1,50 +1,96 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/android-build.yml"
-      - "src/**"
-      - "scripts/**"
-      - "android/**"
-      - "package.json"
-      - "package-lock.json"
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - ".github/workflows/android-build.yml"
-      - "src/**"
-      - "scripts/**"
-      - "android/**"
-      - "package.json"
-      - "package-lock.json"
+      - '.github/workflows/android-build.yml'
+      - 'src/**'
+      - 'scripts/**'
+      - 'public/**'
+      - 'android/**'
+      - 'capacitor.config.ts'
+      - 'next.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'components.json'
+      - 'postcss.config.mjs'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-build.yml'
+      - 'src/**'
+      - 'scripts/**'
+      - 'public/**'
+      - 'android/**'
+      - 'capacitor.config.ts'
+      - 'next.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'components.json'
+      - 'postcss.config.mjs'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Android artifact to build (release and bundle require signing secrets)'
+        required: true
+        type: choice
+        default: debug
+        options:
+          - debug
+          - release
+          - bundle
 
 permissions:
   contents: read
 
-jobs:
-  build:
-    runs-on: ubuntu-24.04
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
+env:
+  NODE_VERSION: '22'
+  JAVA_VERSION: '21'
+  ANDROID_BUILD_MODE: ${{ inputs.build_type || 'debug' }}
+
+jobs:
+  android:
+    name: Android package and checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Validate required configuration without exposing values
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_AUTH_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_AUTH_REDIRECT_URL }}
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: node scripts/android-ci.mjs preflight
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Set up JDK 21
+      - name: Set up JDK
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 21
+          java-version: ${{ env.JAVA_VERSION }}
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -52,42 +98,124 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check
-        run: npm run typecheck
+      - name: Validate Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x android/gradlew
+          test -s android/gradle/wrapper/gradle-wrapper.jar
 
-      - name: Lint
-        run: npm run lint
+      - name: Typecheck, lint, and test
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run lint
+          npx vitest run
 
-      - name: Run tests
-        run: npx vitest run
+      - name: Restore temporary upload signing configuration
+        if: env.ANDROID_BUILD_MODE != 'debug'
+        shell: bash
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keystore="$RUNNER_TEMP/personal-tracker-upload.jks"
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          test -s "$keystore"
+          {
+            printf 'storeFile=%s\n' "$keystore"
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+          } > android/keystore.properties
 
-      - name: Build Android debug APK
+      - name: Export web assets and build Android package
+        shell: bash
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_AUTH_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_AUTH_REDIRECT_URL }}
-        run: node scripts/android.mjs debug
+        run: node scripts/android.mjs "$ANDROID_BUILD_MODE"
 
-      - name: Verify APK was generated
+      - name: Verify package, signature, application ID, and packaged configuration
+        id: package
         shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: |
+          set -euo pipefail
           shopt -s nullglob
-          apks=(android/app/build/outputs/apk/debug/*.apk)
-          if [ "${#apks[@]}" -eq 0 ]; then
-            echo "No debug APK was generated."
-            exit 1
-          fi
-          printf 'Generated APK: %s\n' "${apks[@]}"
+          build_tools="$ANDROID_HOME/build-tools/36.0.0"
+          asset_dir="$RUNNER_TEMP/android-package-assets"
+          rm -rf "$asset_dir"
+          mkdir -p "$asset_dir"
 
-      - name: Upload debug APK
+          if [[ "$ANDROID_BUILD_MODE" == 'bundle' ]]; then
+            packages=(android/app/build/outputs/bundle/release/*.aab)
+            if (( ${#packages[@]} != 1 )); then
+              echo 'Expected exactly one signed release AAB.'
+              exit 1
+            fi
+            package="${packages[0]}"
+            jarsigner -verify -strict "$package"
+            unzip -q "$package" 'base/assets/public/*' -d "$asset_dir"
+            node scripts/android-ci.mjs verify-assets "$asset_dir/base/assets/public"
+            artifact_name='Personal-Tracker-Play-AAB'
+          else
+            packages=("android/app/build/outputs/apk/$ANDROID_BUILD_MODE/"*.apk)
+            if (( ${#packages[@]} != 1 )); then
+              echo "Expected exactly one $ANDROID_BUILD_MODE APK."
+              exit 1
+            fi
+            package="${packages[0]}"
+            "$build_tools/apksigner" verify "$package"
+            badging="$("$build_tools/aapt" dump badging "$package")"
+            if ! grep -q "package: name='com.blueii24.personaltracker'" <<<"$badging"; then
+              echo 'The APK application ID changed unexpectedly.'
+              exit 1
+            fi
+            if ! grep -q "application-label:'Personal Tracker'" <<<"$badging"; then
+              echo 'The APK launcher label changed unexpectedly.'
+              exit 1
+            fi
+            unzip -q "$package" 'assets/public/*' -d "$asset_dir"
+            node scripts/android-ci.mjs verify-assets "$asset_dir/assets/public"
+            if [[ "$ANDROID_BUILD_MODE" == 'release' ]]; then
+              artifact_name='Personal-Tracker-Signed-Release-APK'
+            else
+              artifact_name='Personal-Tracker-Debug-APK'
+            fi
+          fi
+
+          test -s "$package"
+          echo "path=$package" >> "$GITHUB_OUTPUT"
+          echo "name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified Android artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Personal-Tracker-Debug-APK
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.path }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Remove temporary signing and extracted package files
+        if: always()
+        shell: bash
+        run: |
+          rm -f android/keystore.properties
+          rm -f "$RUNNER_TEMP/personal-tracker-upload.jks"
+          rm -rf "$RUNNER_TEMP/android-package-assets"

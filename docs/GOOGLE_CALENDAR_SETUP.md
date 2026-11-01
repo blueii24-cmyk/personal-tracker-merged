@@ -25,4 +25,29 @@ supabase secrets set GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... \
   APP_ALLOWED_ORIGINS=https://your-web-app.example
 supabase functions deploy google-calendar --no-verify-jwt
 ```
-`--no-verify-jwt` is required because Google's redirect has no Supabase JWT; every other request is authenticated inside the function (`authenticate()`). Keep `GOOGLE_TOKEN_ENC_KEY` safe: losing it means users must reconnect. `APP_ALLOWED_ORIGINS` is the list of web origins allowed to call the function and to be redirected to after consent (the Android WebView origin `https://localhost` is always allowed to call it).
+`--no-verify-jwt` is required because Google's redirect has no Supabase JWT; every other request is authenticated inside the function (`authenticate()`). Keep `GOOGLE_TOKEN_ENC_KEY` safe: losing it means users must reconnect. `APP_ALLOWED_ORIGINS` is the comma-separated list of HTTPS web origins allowed to call the function and to be redirected to after consent; put the primary web origin first because it is used for the post-consent web return. The Android WebView origin `https://localhost` is always allowed to call the function.
+
+### Dashboard checks after deployment
+Use the intended Supabase project, not another project in the same organisation:
+1. **Project Settings → Edge Functions → Secrets** (or the **Edge Functions → Secrets** page in the current dashboard): confirm exactly
+   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_ENC_KEY`, and `APP_ALLOWED_ORIGINS` are set. Never move these into
+   `NEXT_PUBLIC_*`, GitHub Variables, the APK, or chat. Rotate the Google secret/encryption key only with a reconnect plan.
+2. **Edge Functions → google-calendar**: confirm the function is deployed from this repository and platform JWT verification is disabled
+   only because the OAuth callback cannot carry a JWT. Do not disable the function's internal `authenticate()` check for POST actions.
+3. **Google Cloud → APIs & Services → Credentials → your Web OAuth client**: confirm the authorised redirect URI is exactly
+   `https://YOUR-PROJECT-REF.supabase.co/functions/v1/google-calendar/callback` for that same project. No Android OAuth client or SHA-1 is
+   used by this flow.
+4. **Google Cloud → OAuth consent screen → Audience/Test users**: add the Google account used for testing while the app remains in Testing.
+   Enable Google Calendar API and grant only the scopes listed above.
+
+### Required real-account/Android verification
+These remain manual even when unit tests and Android CI pass:
+1. Sign in to the app, connect Google in the system browser, complete consent as the registered test user, close the callback page, and return
+   to the app. Confirm status changes to connected without asking for tokens or opening consent inside the WebView.
+2. Select a calendar and sync. Confirm imported events are read-only, repeat sync to check for duplicates, and edit offline to confirm normal
+   tracker sync still works. Switch calendars and disconnect: old imported copies must disappear through tombstones while app-owned events
+   remain; verify directly in Google that no event was deleted.
+3. Reconnect, revoke access at **Google Account → Security → Third-party access**, and confirm the app reports **Reconnect needed**. If you
+   enabled optional push, verify create/update of app-owned events and that Google-originated events remain read-only.
+4. Inspect Supabase Edge Function logs for action/error codes only. Stop immediately if a URL, refresh token, client secret, or event payload
+   is logged; none should be.

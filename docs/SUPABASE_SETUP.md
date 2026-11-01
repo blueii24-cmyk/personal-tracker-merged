@@ -14,9 +14,18 @@ The app works without any of this: with no Supabase variables, or while signed o
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR-PUBLISHABLE-OR-ANON-KEY
+# Optional, but recommended for predictable email confirmation/recovery returns:
+NEXT_PUBLIC_AUTH_REDIRECT_URL=https://YOUR-WEB-APP.example
 ```
-Put them in `.env.local` (or the hosting dashboard) **before** `npm run build` / `node scripts/android.mjs debug`; they are inlined at build time.
-The service-role / secret key must never be put in the app, in `NEXT_PUBLIC_*`, or in Git.
+These values are inlined at build time, so set them **before** `npm run build` / `node scripts/android.mjs debug`:
+* Local: use untracked `.env.local`; never commit it.
+* Vercel: **Project → Settings → Environment Variables**, add both required values for **Production** (and Preview if desired), then redeploy.
+  Set the optional auth redirect to the exact deployed HTTPS URL and allow-list that URL in Supabase.
+* Android CI: **GitHub repository → Settings → Secrets and variables → Actions → Variables**, add both required names. The workflow stops if
+  either is absent and checks the exact values inside the built package. `NEXT_PUBLIC_AUTH_REDIRECT_URL` remains optional.
+
+The service-role / secret key must never be put in the app, in `NEXT_PUBLIC_*`, in GitHub Variables, or in Git. A publishable/anon key is safe
+for the client only because the owner-only RLS policies below remain enabled.
 
 ## 3. How data is protected
 * Every table has Row Level Security with owner-only policies (`user_id = auth.uid()`), no `anon` grants and no "all users" policy.
@@ -38,3 +47,15 @@ See `docs/GOOGLE_CALENDAR_SETUP.md`. No Next.js server routes were added (they w
 
 ## 6. AI relay decision
 Direct on-device BYOK calls remain the default. A Supabase Edge Function relay was **not** built: it would send your key and data through this app's backend, and there was no evidence that a provider blocks the app's origin (the app now reports a connection/CORS failure distinctly, with the code `NETWORK_OR_CORS`, so a real block can be diagnosed). If a first-party provider is later proven to block the WebView origin, add an allow-listed relay (OpenAI/Anthropic/Gemini hosts only, JWT-validated, size-limited, rate-limited, no logging of bodies/keys, never stores the key) and disclose it in the AI settings; never relay arbitrary custom endpoints.
+
+## 7. Required live verification
+Unit tests and a compiled APK do not prove hosted authentication or sync. Against the intended project, with email confirmation enabled for
+production, verify with two separate test users:
+1. Sign up, confirm through the emailed link, sign out/in, reload/restart and confirm the session persists; request password recovery and
+   complete it on the allow-listed web URL before signing back into Android.
+2. Create local records while signed out, sign in, inspect the merge preview (including the sample-data choice), merge once, and repeat to
+   confirm it is idempotent. Keep a separate export first; the original local partition and safety copy must remain.
+3. Edit offline on two signed-in sessions, reconnect, use **Sync now**, and confirm automatic resume/reconnect sync plus the expected
+   last-writer/conflict-review behaviour. Delete on one side and confirm the tombstone propagates without deleting unrelated local records.
+4. As each user, confirm only that user's rows are visible through the app. Inspect Supabase **Authentication → Users**, **Table Editor**, and
+   **Logs** for the expected results; do not substitute a service-role browser client for this RLS test.
