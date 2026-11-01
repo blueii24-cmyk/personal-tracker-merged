@@ -113,7 +113,7 @@ For the SQL suite, use a **scratch local Postgres administrator connection**. Th
 RLS_TEST_ADMIN_URL='<LOCAL_SCRATCH_POSTGRES_ADMIN_URL>' node scripts/test-rls.mjs
 ```
 
-Require `RLS/migration checks: 58 passed, 0 failed`. The suite verifies, among other things:
+Require `RLS/migration checks: 60 passed, 0 failed`. The suite verifies, among other things:
 
 - user A cannot read, update, or delete user B's records;
 - signed-out callers cannot read private tables or call the meal RPC;

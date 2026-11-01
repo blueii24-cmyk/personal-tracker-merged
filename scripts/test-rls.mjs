@@ -202,6 +202,12 @@ try {
   ok('...and the newer notes survived', r.rows[0].notes === 'edited');
   r = await tryQ('authenticated', A, `select count(*)::int n from food_items where meal_id='m1'`);
   ok('...and items were not wiped by the rejected write', r.rows[0].n === 1);
+
+  // --- RLS is not a substitute for safe table privileges: TRUNCATE bypasses row policies
+  r = await tryQ('authenticated', A, 'truncate public.meals');
+  ok('authenticated cannot truncate a table', !r.ok && r.code === '42501', JSON.stringify(r));
+  r = await c.query(`select table_name, privilege_type from information_schema.role_table_grants where table_schema='public' and grantee in ('anon','authenticated') and privilege_type in ('TRUNCATE','TRIGGER','REFERENCES')`);
+  ok('clients have no TRUNCATE/TRIGGER/REFERENCES table privileges', r.rows.length === 0, JSON.stringify(r.rows));
 } finally {
   await c.end();
   await root.query(`drop database ${dbName} with (force)`);
