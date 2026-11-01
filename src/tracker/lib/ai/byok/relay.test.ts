@@ -53,6 +53,18 @@ describe('AI relay', () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
+  it('forwards OpenRouter model discovery through the allow-listed relay', async () => {
+    const upstream = vi.fn(async () => new Response('{"data":[]}', { status: 200 }));
+    const url = 'https://openrouter.ai/api/v1/models';
+    const response = await createProxyHandler(upstream as unknown as typeof fetch)(request({ target: url }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get(PROXY_MARK)).toBe('1');
+    const [forwardedUrl, init] = upstream.mock.calls[0] as unknown as [string, RequestInit];
+    expect(forwardedUrl).toBe(url);
+    expect(forwardedUrl).not.toContain('test-key');
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer test-key');
+  });
+
   it('returns a safe 502 when the provider cannot be reached', async () => {
     const response = await createProxyHandler(async () => {
       throw new Error('provider failure');
@@ -63,16 +75,19 @@ describe('AI relay', () => {
 });
 
 describe('AI transport', () => {
-  it('relays bridged hosts in the browser', async () => {
+  it.each([
+    `${target}/models`,
+    'https://openrouter.ai/api/v1/models',
+  ])('relays bridged model discovery in the browser: %s', async (url) => {
     const fetchImpl = vi.fn(async () => new Response('{}', { headers: { [PROXY_MARK]: '1' } }));
-    const result = await aiFetch(`${target}/models`, {
+    const result = await aiFetch(url, {
       method: 'GET',
       headers: { authorization: 'Bearer test-key' },
       signal: signal(),
     }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(result.viaRelay).toBe(true);
     expect(fetchImpl).toHaveBeenCalledWith('/api/ai-proxy', expect.objectContaining({
-      headers: expect.objectContaining({ [PROXY_TARGET_HEADER]: `${target}/models` }),
+      headers: expect.objectContaining({ [PROXY_TARGET_HEADER]: url }),
     }));
   });
 
@@ -90,6 +105,21 @@ describe('AI transport', () => {
       url: `${target}/chat/completions`,
       data: { model: 'test' },
     }));
+    expect(await result.res.json()).toEqual({ data: [] });
+  });
+
+  it('uses the native client for OpenRouter model discovery on Android', async () => {
+    const nativeRequest = vi.fn(async () => ({ status: 200, data: { data: [] }, headers: {} }));
+    const fetchImpl = vi.fn();
+    const url = 'https://openrouter.ai/api/v1/models';
+    const result = await aiFetch(url, {
+      method: 'GET',
+      headers: { authorization: 'Bearer test-key' },
+      signal: signal(),
+    }, { native: true, fetchImpl: fetchImpl as unknown as typeof fetch, nativeRequest });
+    expect(result.viaRelay).toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(nativeRequest).toHaveBeenCalledWith(expect.objectContaining({ url, method: 'GET' }));
     expect(await result.res.json()).toEqual({ data: [] });
   });
 });

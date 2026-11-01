@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TrackerError } from '@/tracker/lib/api/errors';
+import { PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
 import {
   chooseModel, fetchModels, modelGeneration, parseAnthropicModels, parseGeminiModels, parseOpenAiModels, rankModels, SWITCH_MARGIN,
   type RawModel,
@@ -154,10 +155,18 @@ describe('fetchModels', () => {
     await fetchModels({ providerId: 'gemini', baseUrl: '' }, 'AIzaSecret123456');
     expect((g.mock.calls[0] as unknown as [string])[0]).toContain('/v1beta/models?pageSize=1000');
 
-    const c = respond(200, { data: [{ id: 'llama3.1:70b' }] });
+    const c = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'llama3.1:70b' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json', [PROXY_MARK]: '1' },
+    }));
     vi.stubGlobal('fetch', c);
     await fetchModels({ providerId: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1/chat/completions' }, 'or-secret-123456');
-    expect((c.mock.calls[0] as unknown as [string])[0]).toBe('https://openrouter.ai/api/v1/models');
+    const [relayUrl, relayInit] = c.mock.calls[0] as unknown as [string, RequestInit];
+    const relayHeaders = relayInit.headers as Record<string, string>;
+    expect(relayUrl).toBe(PROXY_PATH);
+    expect(relayHeaders[PROXY_TARGET_HEADER]).toBe('https://openrouter.ai/api/v1/models');
+    expect(relayHeaders.authorization).toBe('Bearer or-secret-123456');
+    expect(relayUrl).not.toContain('or-secret');
   });
   it('explains a rejected key without echoing it', async () => {
     vi.stubGlobal('fetch', respond(401, { error: { message: 'Incorrect API key provided: sk-secret-key-123456' } }));

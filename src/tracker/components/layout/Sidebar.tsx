@@ -36,7 +36,7 @@ export function Sidebar() {
       <div className={cn('flex h-16 items-center', collapsed ? 'justify-center px-2' : 'justify-between px-4')}>
         {collapsed ? (
           <button onClick={toggle} aria-label="Expand sidebar" aria-expanded={false} title="Expand sidebar" className="group relative rounded-full p-1 hover:bg-hover">
-            <span className="group-hover:invisible group-focus-visible:invisible"><Brand compact /></span>
+            <span className="group-hover:invisible group-focus-visible:invisible"><Brand /></span>
             <PanelLeftOpen className="absolute inset-0 m-auto size-[18px] text-ink opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" aria-hidden />
           </button>
         ) : (
