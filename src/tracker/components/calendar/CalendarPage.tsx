@@ -60,8 +60,22 @@ export default function CalendarPage() {
   }, [service]);
   // `t.summary` is replaced on every refresh (local edits, sync, resume), so events stay current with the records.
   useEffect(() => {
-    void load();
-  }, [load, t.summary]);
+    let cancelled = false;
+    Promise.all([service.getCalendarEvents(), service.getCalendarPrefs()])
+      .then(([nextEvents, nextPrefs]) => {
+        if (cancelled) return;
+        setEvents(nextEvents);
+        setPrefs(nextPrefs);
+        setLoaded(true);
+        setLoadError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(toTrackerError(err).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [service, t.summary]);
 
   const activeMonth = month ?? monthKeyOf(today);
   const activeDate = selected ?? today;
