@@ -34,12 +34,30 @@ export function GoogleCalendarCard({ onSynced }: { onSynced: () => void }) {
     }
   }, [auth.user]);
   useEffect(() => {
-    void refresh();
+    if (!auth.user) return;
+    let cancelled = false;
+    const refreshStatus = () => {
+      void callGoogle<GoogleStatus>('status')
+        .then((nextStatus) => {
+          if (cancelled) return;
+          setStatus(nextStatus);
+          setError(null);
+        })
+        .catch((e) => {
+          if (!cancelled) setError(toTrackerError(e).message);
+        });
+    };
+    refreshStatus();
     // Coming back from the system browser: re-check the connection.
-    const onVisible = () => document.visibilityState === 'visible' && void refresh();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshStatus();
+    };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [refresh]);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [auth.user]);
 
   const run = async (kind: NonNullable<typeof busy>, fn: () => Promise<void>) => {
     setBusy(kind);
