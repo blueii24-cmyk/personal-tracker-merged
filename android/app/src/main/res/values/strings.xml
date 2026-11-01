@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Personal Tracker</string>
+    <string name="title_activity_main">Personal Tracker</string>
+    <string name="package_name">com.blueii24.personaltracker</string>
+    <string name="custom_url_scheme">com.blueii24.personaltracker</string>
+</resources>
