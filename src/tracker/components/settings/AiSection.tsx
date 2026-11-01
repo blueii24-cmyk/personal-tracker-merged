@@ -48,8 +48,6 @@ export function AiSection() {
   const [detect, setDetect] = useState<Detect>({ state: 'idle' });
   const [detectNonce, setDetectNonce] = useState(0);
   const [typing, setTyping] = useState(false);
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
   const patch = (p: Partial<ByokConfig>) => {
     setDraft((d) => ({ ...d, ...p }));
     setTest({ state: 'idle' });
@@ -57,7 +55,7 @@ export function AiSection() {
 
   // Detect the models this key can use whenever the provider, server or key changes (and on "Detect models").
   useEffect(() => {
-    const d = draftRef.current;
+    const d = draft;
     const apiKey = key.trim() || ai.getKey();
     if (!apiKey || keyProblem(apiKey) || (d.providerId === 'openai-compatible' && baseUrlError(d.baseUrl))) {
       setListing(null);
@@ -89,7 +87,7 @@ export function AiSection() {
       ctrl.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.providerId, draft.baseUrl, key, ai.hasKey, detectNonce]);
+  }, [draft.providerId, draft.baseUrl, draft.autoModel, key, ai.hasKey, detectNonce]);
 
   useEffect(() => {
     if (hash === '#ai') wrap.current?.scrollIntoView({ block: 'start' });
