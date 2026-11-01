@@ -33,7 +33,7 @@ for the client only because the owner-only RLS policies below remain enabled.
 * Writes carry the revision they were based on (`base_rev`). A trigger rejects a stale write (SQLSTATE 40001) so an older offline copy can never silently overwrite a newer cloud record; the app then reconciles it (see "Conflict policy").
 * Meals and their food items are written in one transaction by `pt_upsert_meal`.
 * AI API keys are never synced and have no column anywhere.
-* Test it: `node scripts/test-rls.mjs` runs 58 checks (isolation, signed-out denial, revision guard, tombstones, chat idempotency, constraints, Google table lockout, atomic meals) against a throw-away **plain Postgres** database that stands in for Supabase's `auth` schema and roles. It is not a test against your live project: after applying the migration, sign in as two real users and confirm each only sees their own data.
+* Test it: `node scripts/test-rls.mjs` runs 60 checks (isolation, signed-out denial, safe table privileges, revision guard, tombstones, chat idempotency, constraints, Google table lockout, atomic meals) against a throw-away **plain Postgres** database that stands in for Supabase's `auth` schema and roles. It is not a test against your live project: after applying the migration, sign in as two real users and confirm each only sees their own data.
 
 ## 4. Sync behaviour
 * Local first: every write is saved on the device immediately and queued; the queue survives restarts and is retried on launch, app resume, reconnect, after each change and every minute while the app is open.

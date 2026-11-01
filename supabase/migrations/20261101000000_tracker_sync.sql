@@ -282,7 +282,7 @@ begin
   loop
     execute format('alter table public.%I enable row level security', t);
     execute format('alter table public.%I force row level security', t);
-    execute format('revoke all on public.%I from anon, public', t);
+    execute format('revoke all on public.%I from anon, authenticated, public', t);
     execute format('grant select, insert, update, delete on public.%I to authenticated', t);
     execute format('drop policy if exists %I on public.%I', t || '_select_own', t);
     execute format('drop policy if exists %I on public.%I', t || '_insert_own', t);
