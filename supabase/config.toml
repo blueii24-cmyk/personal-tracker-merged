@@ -1,0 +1,5 @@
+# Minimal Supabase CLI config for this repo. Create a real project with `supabase link`; this file only carries per-function settings.
+# google-calendar: the Google redirect (GET /callback) has no Supabase JWT, so the platform JWT check is off for this function.
+# EVERY other request is authenticated inside the function by validating the caller's Supabase JWT (see index.ts: authenticate()).
+[functions.google-calendar]
+verify_jwt = false

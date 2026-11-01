@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The full favicon (dark rounded square, line, orange dot), sized to fit Android's circular splash mask. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M40.9,24 H67.1 A16.9,16.9 0 0 1 84,40.9 V67.1 A16.9,16.9 0 0 1 67.1,84 H40.9 A16.9,16.9 0 0 1 24,67.1 V40.9 A16.9,16.9 0 0 1 40.9,24 Z" android:fillColor="#14181F" />
+    <path android:pathData="M39,62.44 L48.38,52.13 L55.88,58.69 L69,42.75"
+        android:strokeColor="#FFFFFF" android:strokeWidth="4.875" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M64.5,42.75 a4.5,4.5 0 1,0 9,0 a4.5,4.5 0 1,0 -9,0 Z" android:fillColor="#E8590C" />
+</vector>

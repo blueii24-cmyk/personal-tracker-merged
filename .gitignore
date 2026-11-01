@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# builds
+.next/
+out/
+.android-build-stash-api/
+*.tsbuildinfo
+next-env.d.ts
+
+# secrets and local config (never commit real keys, passwords or keystores)
+.env
+.env.*
+!.env.example
+android/keystore.properties
+*.jks
+*.keystore
+*.pem
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/release/
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Build outputs are not committed (release-artifacts/ is a local copy)
+release-artifacts/

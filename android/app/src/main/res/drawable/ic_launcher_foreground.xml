@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The trend line and orange dot from public/favicon.svg, inside the adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M33.2,67.65 L46.2,53.35 L56.6,62.45 L74.8,40.35"
+        android:strokeColor="#FFFFFF" android:strokeWidth="6.76" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M68.56,40.35 a6.24,6.24 0 1,0 12.48,0 a6.24,6.24 0 1,0 -12.48,0 Z" android:fillColor="#E8590C" />
+</vector>
