@@ -1,5 +1,6 @@
 import { TrackerError } from '@/tracker/lib/api/errors';
 import { classifyHttpFailure, withDiagnostic } from './diagnose';
+import { aiFetch, relayIsMissing } from './transport';
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -61,16 +62,17 @@ export async function postJson<T>(req: JsonRequest): Promise<{ data: T; requestI
   const timeout = timeoutSignal(req.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const signal = req.signal ? anySignal([req.signal, timeout]) : timeout;
   let res: Response;
+  let viaRelay = false;
   try {
     const isGet = req.method === 'GET';
-    res = await fetch(req.url, {
+    const sent = await aiFetch(req.url, {
       method: isGet ? 'GET' : 'POST',
       headers: isGet ? { ...req.headers } : { 'content-type': 'application/json', ...req.headers },
       ...(isGet ? {} : { body: JSON.stringify(req.body) }),
       signal,
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
     });
+    res = sent.res;
+    viaRelay = sent.viaRelay;
   } catch (e) {
     if (req.signal?.aborted) throw new TrackerError('ABORTED', 'The request was cancelled.', { retryable: true });
     if (timeout.aborted) throw new TrackerError('NETWORK', withDiagnostic(`${req.providerLabel} took too long to answer. Try again, or pick a faster model.`, 'TIMEOUT'), { retryable: true, diagnostic: 'TIMEOUT' });
@@ -82,6 +84,17 @@ export async function postJson<T>(req: JsonRequest): Promise<{ data: T; requestI
         'NETWORK_OR_CORS',
       ),
       { retryable: true, diagnostic: 'NETWORK_OR_CORS' },
+    );
+  }
+
+  if (viaRelay && relayIsMissing(res)) {
+    throw new TrackerError(
+      'NETWORK',
+      withDiagnostic(
+        `${safeHost(req.url)} blocks calls from a web page and this copy of the app has no server to relay them. Run the app with npm run dev or npm start, use the Android app, or pick a provider that allows browser requests such as OpenRouter.`,
+        'RELAY_UNAVAILABLE',
+      ),
+      { retryable: false, diagnostic: 'RELAY_UNAVAILABLE' },
     );
   }
 

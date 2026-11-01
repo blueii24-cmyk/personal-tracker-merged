@@ -51,7 +51,7 @@ export const SERVER_PRESETS: ServerPreset[] = [
   { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', note: 'Hosts NVIDIA Nemotron, Claude, GPT, Gemini, Llama and more behind one key, and allows browser requests.' },
   { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
   { label: 'Together', baseUrl: 'https://api.together.xyz/v1' },
-  { label: 'NVIDIA NIM', baseUrl: 'https://integrate.api.nvidia.com/v1', note: "NVIDIA's own API does not allow requests from a web page (CORS), so detection and chat will fail here. To use Nemotron, pick OpenRouter instead." },
+  { label: 'NVIDIA NIM', baseUrl: 'https://integrate.api.nvidia.com/v1', note: "NVIDIA's API blocks direct browser calls, so this app relays it through its own server or the Android native client. Static web copies without a server cannot use it; use OpenRouter there." },
   { label: 'Ollama (this device)', baseUrl: 'http://localhost:11434/v1', note: 'Start Ollama with OLLAMA_ORIGINS set to allow this page.' },
 ];
 
