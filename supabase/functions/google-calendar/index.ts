@@ -3,7 +3,7 @@
 //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_TOKEN_ENC_KEY (base64, 32 bytes), APP_ALLOWED_ORIGINS (comma list, e.g. https://your-site.example)
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by the platform. Tokens are never returned to the client or logged.
 // @ts-nocheck - Deno runtime, type-checked by the Supabase CLI rather than by the app's tsconfig.
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 import {
   allowedReturn, buildAuthUrl, classifyGoogleError, decryptToken, encryptToken, googleCopyTombstone, hasWriteScope, localEventId, pkcePair,
   randomState, sha256Hex, toAppEvent, toGoogleBody,
