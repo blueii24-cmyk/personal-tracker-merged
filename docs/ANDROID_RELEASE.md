@@ -23,10 +23,10 @@ Keep the `.jks` and passwords in a password manager and a backup. Both are git-i
 ## 3. Build in GitHub Actions (recommended)
 The existing **Build Android APK** workflow uses Node 22, JDK 21, Android SDK 36/build-tools 36.0.0 and `scripts/android.mjs`.
 
-1. In **GitHub repository → Settings → Secrets and variables → Actions → Variables**, add:
+1. The workflow includes the browser-safe Personal Tracker production defaults. To rotate them or use another environment, override them in **GitHub repository → Settings → Secrets and variables → Actions → Variables**:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (publishable or legacy anon key, never a secret/service-role key)
-   - Optional: `NEXT_PUBLIC_AUTH_REDIRECT_URL`, the HTTPS web origin/path used for email confirmation and recovery.
+   - `NEXT_PUBLIC_AUTH_REDIRECT_URL`, the HTTPS web origin/path used for email confirmation and recovery.
 2. For `release` or `bundle`, open the **Secrets** tab on the same page and add:
    - `ANDROID_UPLOAD_KEYSTORE_BASE64`: base64 of the existing upload `.jks`
    - `ANDROID_KEYSTORE_PASSWORD`
@@ -43,8 +43,8 @@ The existing **Build Android APK** workflow uses Node 22, JDK 21, Android SDK 36
    always-run cleanup removes signing material and extracted package files. Artifacts expire after 14 days. GitHub-hosted runners are
    ephemeral, but your keystore backup remains your responsibility.
 
-The preflight stops before a build if required values are absent or malformed. A successful old debug run does not prove these values were
-configured; use a run of this updated workflow and its packaged-asset verification.
+The preflight validates the effective public defaults and any repository-variable overrides, and stops before a build if they are absent or malformed.
+A successful old debug run does not prove the intended values were packaged; use a run of this updated workflow and its packaged-asset verification.
 
 ## 4. Build locally (alternative)
 Set the same public values in `.env.local`, create the local signing files from section 2, then run:

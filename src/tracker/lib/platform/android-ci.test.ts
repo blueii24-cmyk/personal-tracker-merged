@@ -34,6 +34,14 @@ describe('Android CI public configuration preflight', () => {
     expect(validateAndroidBuildEnv({ ...publicConfig, NEXT_PUBLIC_AUTH_REDIRECT_URL: 'https://app.example/' }, 'debug')).toEqual([]);
   });
 
+  it('provides public CI defaults without empty step-level overrides', () => {
+    const workflow = readFileSync(join(ROOT, '.github/workflows/android-build.yml'), 'utf8');
+    for (const key of ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY', 'NEXT_PUBLIC_AUTH_REDIRECT_URL']) {
+      expect(workflow).toContain(key + ': ${{ vars.' + key + " || '");
+      expect(workflow.split(key + ':')).toHaveLength(2); // one top-level default; no step can replace it with an empty variable
+    }
+  });
+
   it('rejects server credentials and malformed public settings without echoing their values', () => {
     const secret = 'sb_secret_unit_test_credential_that_must_never_ship';
     const errors = validateAndroidBuildEnv({

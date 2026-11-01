@@ -21,8 +21,8 @@ These values are inlined at build time, so set them **before** `npm run build` /
 * Local: use untracked `.env.local`; never commit it.
 * Vercel: **Project → Settings → Environment Variables**, add both required values for **Production** (and Preview if desired), then redeploy.
   Set the optional auth redirect to the exact deployed HTTPS URL and allow-list that URL in Supabase.
-* Android CI: **GitHub repository → Settings → Secrets and variables → Actions → Variables**, add both required names. The workflow stops if
-  either is absent and checks the exact values inside the built package. `NEXT_PUBLIC_AUTH_REDIRECT_URL` remains optional.
+* Android CI: the workflow carries the browser-safe production defaults. Set repository **Variables** with these names only when you need to
+  override them. The workflow validates the effective values and checks the exact values inside the built package.
 
 The service-role / secret key must never be put in the app, in `NEXT_PUBLIC_*`, in GitHub Variables, or in Git. A publishable/anon key is safe
 for the client only because the owner-only RLS policies below remain enabled.
