@@ -4,6 +4,7 @@ import { TrackerError } from '@/tracker/lib/api/errors';
 import { AI_TOOLS } from '../tool-schemas';
 import type { AiProviderAdapter, CanonicalMessage, ProviderGenerateInput, ProviderGenerateOutput } from '../provider';
 import { toAnthropicMessages } from './anthropic';
+import { PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
 import { baseUrlError, createAdapter, DEFAULT_CONFIG, maskKey, type ByokConfig } from './config';
 import { sanitizeSchema, toGeminiContents } from './gemini';
 import { redactKey } from './http';
@@ -320,11 +321,15 @@ describe('http, keys and addresses', () => {
     expect(out.toolCalls).toEqual([{ id: 'x', name: 'log_weight', arguments: { weight_kg: 71 } }]);
     expect(out.finishReason).toBe('tool_calls');
   });
-  it('OpenAI-compatible: custom base URL and max_tokens; omits an empty tools list', async () => {
-    const f = stub(okJson({ choices: [{ finish_reason: 'stop', message: { content: 'hi' } }] }));
+  it('OpenRouter: relays chat with max_tokens and omits an empty tools list', async () => {
+    const response = okJson({ choices: [{ finish_reason: 'stop', message: { content: 'hi' } }] });
+    response.headers.set(PROXY_MARK, '1');
+    const f = stub(response);
     await createAdapter({ providerId: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1/chat/completions/' }, KEY).generate(input({ tools: [], maxOutputTokens: 50 }));
     const s = sent(f);
-    expect(s.url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(s.url).toBe(PROXY_PATH);
+    expect(s.headers[PROXY_TARGET_HEADER]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(s.headers.authorization).toBe(`Bearer ${KEY}`);
     expect(s.body.max_tokens).toBe(50);
     expect(s.body).not.toHaveProperty('tools');
   });

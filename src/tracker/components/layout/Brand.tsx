@@ -1,4 +1,3 @@
-import { APP_NAME } from '@/tracker/config';
 import { cn } from '@/tracker/lib/cn';
 
 export function LogoMark({ className }: { className?: string }) {
@@ -12,13 +11,8 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-export function Brand({ compact }: { compact?: boolean }) {
-  return (
-    <span className="flex min-w-0 items-center gap-2.5">
-      <LogoMark />
-      {!compact && <span className="truncate text-[15px] font-semibold tracking-tight text-ink">{APP_NAME}</span>}
-    </span>
-  );
+export function Brand() {
+  return <LogoMark />;
 }
 
 export function Avatar({ name, className }: { name: string; className?: string }) {

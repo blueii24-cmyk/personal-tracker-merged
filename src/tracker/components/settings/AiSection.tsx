@@ -215,7 +215,7 @@ export function AiSection() {
             </div>
 
             {draft.providerId === 'openai-compatible' && (
-              <Field label="Server address" error={errors.baseUrl} hint="Works with OpenRouter, Groq, Together, a local Ollama or LM Studio, and anything that speaks the OpenAI chat format. The server must allow requests from a web page.">
+              <Field label="Server address" error={errors.baseUrl} hint="Works with OpenRouter, Groq, Together, a local Ollama or LM Studio, and anything that speaks the OpenAI chat format. Custom servers must allow web requests; OpenRouter and NVIDIA can use the app's relay.">
                 {({ id, describedBy, invalid }) => (
                   <Input id={id} aria-describedby={describedBy} aria-invalid={invalid} placeholder="https://openrouter.ai/api/v1" value={draft.baseUrl} onChange={(e) => patch({ baseUrl: e.target.value })} autoComplete="off" spellCheck={false} inputMode="url" />
                 )}
@@ -458,7 +458,7 @@ export function AiSection() {
               {isNative() ? (
                 <p>Your key is kept on this device and used to call your provider directly from the app. With “this device” it is encrypted using the Android Keystore; with “this tab” it is only held until the app is closed. It isn&apos;t sent anywhere else, but it can still be read by anyone who can unlock this phone, or by someone inspecting the app on a rooted or debuggable device.</p>
               ) : (
-                <p>Your key is kept in this browser and used to call your provider directly from this page. It isn&apos;t sent anywhere else, but anyone who can use this browser profile, its developer tools, or an extension with access to this site could read it.</p>
+                <p>Your key is kept in this browser and used only to call your provider. OpenRouter and NVIDIA use this app&apos;s relay, which forwards the key without saving it; other supported providers are called directly. Anyone who can use this browser profile, its developer tools, or an extension with access to this site could read it.</p>
               )}
               <p>Privacy: when the assistant looks up your records to answer a question, the matching meals, spending or weights are sent to your AI provider and are covered by that provider&apos;s privacy terms. Nothing is sent unless you switch the assistant on and send a message.</p>
               <p>The key itself can&apos;t be limited to budgeting and bulking: the limit is in what this app lets the model do, and it is enforced by instructions plus a fixed tool list, not by your provider. Use a dedicated key with a low spend limit, and revoke it at your provider if you ever doubt it.</p>

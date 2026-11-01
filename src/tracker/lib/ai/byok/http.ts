@@ -91,7 +91,7 @@ export async function postJson<T>(req: JsonRequest): Promise<{ data: T; requestI
     throw new TrackerError(
       'NETWORK',
       withDiagnostic(
-        `${safeHost(req.url)} blocks calls from a web page and this copy of the app has no server to relay them. Run the app with npm run dev or npm start, use the Android app, or pick a provider that allows browser requests such as OpenRouter.`,
+        `${safeHost(req.url)} needs a relay and this copy of the app has no server to provide it. Run the app with npm run dev or npm start, use the Android app, or pick a provider that allows direct browser requests.`,
         'RELAY_UNAVAILABLE',
       ),
       { retryable: false, diagnostic: 'RELAY_UNAVAILABLE' },
