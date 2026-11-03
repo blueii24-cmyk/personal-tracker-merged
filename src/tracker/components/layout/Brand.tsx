@@ -11,8 +11,13 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-export function Brand() {
-  return <LogoMark />;
+export function Brand({ markOnly = false }: { markOnly?: boolean }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      <LogoMark />
+      {!markOnly && <span className="truncate text-[17px] font-semibold tracking-tight text-ink">Personal Tracker</span>}
+    </span>
+  );
 }
 
 export function Avatar({ name, className }: { name: string; className?: string }) {

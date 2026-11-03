@@ -11,6 +11,7 @@ import { Segmented } from '@/tracker/components/ui/Segmented';
 import { useToast } from '@/tracker/components/ui/Toast';
 import { useAiConfig } from '@/tracker/features/ai-config/AiConfigProvider';
 import { useTracker } from '@/tracker/features/store/TrackerProvider';
+import { useAuth } from '@/tracker/features/auth/AuthProvider';
 import { toTrackerError } from '@/tracker/lib/api/errors';
 import { baseUrlError, configError, NOTES_MAX, PROVIDERS, providerInfo, SERVER_PRESETS, type ByokConfig, type KeyStorage } from '@/tracker/lib/ai/byok/config';
 import { fetchModels, type ModelListing } from '@/tracker/lib/ai/byok/models';
@@ -35,6 +36,7 @@ function keyProblem(key: string): string | undefined {
 export function AiSection() {
   const { aiStatus } = useTracker();
   const ai = useAiConfig();
+  const auth = useAuth();
   const { toast } = useToast();
   const { hash } = useLocation();
   const wrap = useRef<HTMLDivElement>(null);
@@ -158,27 +160,32 @@ export function AiSection() {
   const pickedHidden = !!listing && !!draft.model && !shown.some((m) => m.id === draft.model);
 
   const active = ai.active;
+  const usingDefault = Boolean(auth.user) && !ai.config.enabled;
   const badge = active
     ? { tone: 'success' as const, label: 'Your model' }
     : ai.config.enabled && !ai.hasKey
       ? { tone: 'warning' as const, label: 'Key needed' }
-      : ai.hasKey
-        ? { tone: 'neutral' as const, label: 'Paused' }
-        : { tone: 'warning' as const, label: 'Demo assistant' };
+      : usingDefault
+        ? { tone: 'neutral' as const, label: 'Default AI' }
+        : ai.hasKey
+          ? { tone: 'neutral' as const, label: 'Paused' }
+          : { tone: 'warning' as const, label: 'Built-in assistant' };
 
   return (
     <div id="ai" ref={wrap} className="scroll-mt-20">
       <Card>
-        <CardHeader as="h2" title="AI assistant" description="Use your own AI account for chat. It is pre-set for budgeting and bulking only." action={<Badge tone={badge.tone}>{badge.label}</Badge>} />
+        <CardHeader as="h2" title="AI assistant" description="Use the authenticated default AI, or connect your own AI account. Chat is pre-set for budgeting and bulking only." action={<Badge tone={badge.tone}>{badge.label}</Badge>} />
         <CardBody className="space-y-5">
           <p className="text-sm text-ink-2" data-testid="ai-status">
             {active
               ? `Chat is answered by ${providerInfo(ai.config.providerId).label}, model ${ai.config.model}${ai.config.autoModel ? ' (picked automatically)' : ''}. Your key ${ai.keyHint} is used from this browser.`
-              : ai.config.enabled && !ai.hasKey
-                ? "Your key isn't saved in this tab any more (it was set to this tab only). Add it again below to keep using your model."
+              : usingDefault
+                ? "Chat is set to use Personal Tracker's authenticated default AI. Server configuration, provider availability and usage limits are checked when you send; your own API key is not needed."
+                : ai.config.enabled && !ai.hasKey
+                  ? "Your key isn't saved in this tab any more (it was set to this tab only). Add it again below to keep using your model."
                 : ai.hasKey
-                  ? 'Your key is saved but paused. Chat is using the built-in demo assistant.'
-                  : (aiStatus?.detail ?? 'Replies come from a built-in rule-based demo assistant. No AI provider is called.')}
+                  ? 'Your key is saved but paused. Chat is using the built-in assistant.'
+                  : (aiStatus?.detail ?? 'Replies come from built-in on-device rules. No AI provider is called.')}
           </p>
 
           {ai.hasKey && (
@@ -186,7 +193,7 @@ export function AiSection() {
               {ai.config.enabled ? (
                 <Button size="sm" onClick={() => ai.setEnabled(false)}>
                   <PauseCircle className="size-4" aria-hidden />
-                  Pause and use demo
+                  {auth.user ? 'Pause and use default AI' : 'Pause and use built-in assistant'}
                 </Button>
               ) : (
                 <Button size="sm" onClick={() => ai.setEnabled(true)} disabled={Object.keys(configError(ai.config)).length > 0}>
@@ -470,7 +477,7 @@ export function AiSection() {
       <ConfirmDialog
         open={confirmRemove}
         title="Remove your API key?"
-        description="The key is deleted from this browser and chat goes back to the built-in demo assistant. Your records and notes stay. You can revoke the key at your provider too."
+        description={auth.user ? "The key is deleted from local app storage and chat uses default AI instead. Your records and notes stay. You can revoke the key at your provider too." : "The key is deleted from local app storage and chat goes back to the built-in assistant. Your records and notes stay. You can revoke the key at your provider too."}
         confirmLabel="Remove key"
         onConfirm={() => {
           ai.removeKey();

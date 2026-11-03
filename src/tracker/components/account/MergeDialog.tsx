@@ -8,18 +8,17 @@ import type { MergeResult, SyncCapable } from '@/tracker/sync/synced-service';
 const ROWS: Array<[keyof Counts, string]> = [['meals', 'Meals'], ['transactions', 'Transactions'], ['weighIns', 'Weigh-ins'], ['chats', 'Chats'], ['calendarEvents', 'Calendar events']];
 
 export function MergeDialog({ open, service, onClose, onMerged }: { open: boolean; service: SyncCapable; onClose: () => void; onMerged: () => void }) {
-  const [includeSample, setIncludeSample] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<MergeResult | null>(null);
   // Recomputed on every render while open so the account side reflects what has just been downloaded.
-  const preview = useMemo(() => (open ? service.previewGuestMerge(includeSample) : null), [open, service, includeSample]);
+  const preview = useMemo(() => (open ? service.previewGuestMerge() : null), [open, service]);
 
   const merge = async () => {
     setBusy(true);
     setError(null);
     try {
-      setResult(await service.mergeGuest({ includeSample }));
+      setResult(await service.mergeGuest());
       onMerged();
     } catch (e) {
       setError(toTrackerError(e).message);
@@ -60,7 +59,7 @@ export function MergeDialog({ open, service, onClose, onMerged }: { open: boolea
         <div className="space-y-2 text-sm text-ink-2" role="status">
           <p>
             Added {result.added} record{result.added === 1 ? '' : 's'} to your account{result.identical ? `, ${result.identical} were already there` : ''}.
-            {result.skippedSample ? ` ${result.skippedSample} sample record${result.skippedSample === 1 ? ' was' : 's were'} left out.` : ''}
+            {result.skippedLegacy ? ` ${result.skippedLegacy} older built-in record${result.skippedLegacy === 1 ? ' was' : 's were'} left out.` : ''}
           </p>
           {result.differing > 0 && <p>{result.differing} record{result.differing === 1 ? ' exists' : 's exist'} in both places with different content. Your account&apos;s version was kept and this device&apos;s version is saved under Settings → Account → Needs review.</p>}
           <p className={result.confirmed ? 'text-success' : 'text-warning'}>
@@ -86,14 +85,11 @@ export function MergeDialog({ open, service, onClose, onMerged }: { open: boolea
               </tbody>
             </table>
           </div>
-          {totalOf(preview.sample) > 0 && (
-            <label className="flex items-start gap-3 rounded-2xl bg-warning-soft px-4 py-3 text-warning">
-              <input type="checkbox" className="mt-0.5 size-4 accent-[var(--primary)]" checked={includeSample} onChange={(e) => setIncludeSample(e.target.checked)} />
-              <span>
-                <span className="block font-medium">{totalOf(preview.sample)} of the records on this device look like the app&apos;s sample data.</span>
-                <span className="block text-xs">They are left out unless you tick this box. Sample data would otherwise be mixed in with your real records.</span>
-              </span>
-            </label>
+          {totalOf(preview.legacy) > 0 && (
+            <div className="rounded-2xl bg-warning-soft px-4 py-3 text-warning">
+              <span className="block font-medium">{totalOf(preview.legacy)} records on this device were created by an earlier app version.</span>
+              <span className="block text-xs">Those built-in records are always left out. Your own records are included.</span>
+            </div>
           )}
           <p className="text-ink-2">
             This will add {preview.willAdd} record{preview.willAdd === 1 ? '' : 's'} to your account.

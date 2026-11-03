@@ -4,13 +4,18 @@ import type { Kind } from './entities';
 import { fromRow, toRow } from './mapping';
 import { resolveConflict } from './resolve';
 import { SyncedTrackerService } from './synced-service';
-import { buildSeedDb } from '@/tracker/lib/api/mock/seed';
+import { buildEmptyDb, buildSeedDb } from '@/tracker/lib/api/mock/seed';
+import { planMerge } from './merge-guest';
 import type { Meal, Transaction } from '@/tracker/types/domain';
 
 class FakeStorage {
   data = new Map<string, string>();
+  failLegacyBackup = false;
   getItem(k: string) { return this.data.get(k) ?? null; }
-  setItem(k: string, v: string) { this.data.set(k, String(v)); }
+  setItem(k: string, v: string) {
+    if (this.failLegacyBackup && k.includes('.legacy-backup.')) throw new DOMException('quota', 'QuotaExceededError');
+    this.data.set(k, String(v));
+  }
   removeItem(k: string) { this.data.delete(k); }
 }
 
@@ -73,10 +78,10 @@ const tx = (over: Partial<Transaction> = {}) => ({ type: 'expense' as const, amo
 const meal = { mealType: 'lunch' as const, eatenAt: '2026-03-10T06:30:00Z', notes: null, items: [{ foodName: 'Rice', quantity: 2, unit: 'cup', caloriesKcal: null, proteinG: 4, isEstimate: true, nutritionSource: 'ai_estimate' as const }] };
 
 describe('local-only mode (no account)', () => {
-  it('behaves exactly like the local service: sample data, demo mode, no sync status', async () => {
+  it('behaves exactly like the empty local service: local mode, no sync status', async () => {
     const s = dev('');
     expect(s.mode).toBe('demo');
-    expect((await s.getMeals()).length).toBeGreaterThan(0);
+    expect(await s.getMeals()).toHaveLength(0);
     expect(s.getSyncStatus().state).toBe('local-only');
     await s.createTransaction(tx());
     await s.syncNow();
@@ -87,10 +92,11 @@ describe('local-only mode (no account)', () => {
 describe('account partitions', () => {
   it('keeps guest data, shows a clean account, and never leaks between users', async () => {
     const s = dev('');
+    await s.createMeal(meal);
     const guestMeals = (await s.getMeals()).length;
     await sign(s, U1);
     expect(s.mode).toBe('connected');
-    expect(await s.getMeals()).toHaveLength(0); // no sample data uploaded or shown as real data
+    expect(await s.getMeals()).toHaveLength(0); // guest records stay out until the user merges
     await s.createTransaction(tx({ description: 'Private to user one' }));
     await sign(s, U2);
     expect(await s.getTransactions()).toHaveLength(0);
@@ -100,6 +106,62 @@ describe('account partitions', () => {
     expect(s.mode).toBe('demo');
     expect((await s.getMeals()).length).toBe(guestMeals); // guest data preserved
     expect((await s.getTransactions()).some((x) => x.description === 'Private to user one')).toBe(false);
+  });
+});
+
+describe('legacy seed safety cleanup', () => {
+  it('backs up before idempotent local cleanup and preserves unknown demo-prefixed records', async () => {
+    const seeded = buildSeedDb(new Date(t));
+    const custom = { ...seeded.transactions[0]!, id: 'demo-tx-custom', description: 'Real custom id' };
+    seeded.transactions.push(custom);
+    store.setItem('c.pt.demo.db.v1', JSON.stringify(seeded));
+    const s = dev('c.');
+    expect(await s.getMeals()).toHaveLength(0);
+    expect(await s.getWeighIns()).toHaveLength(0);
+    expect(await s.getTransactions()).toEqual([custom]);
+    const backups = [...store.data.keys()].filter((k) => k.includes('.legacy-backup.'));
+    expect(backups).toHaveLength(1);
+    expect(store.getItem(backups[0]!)).toContain('demo-meal-1');
+    dev('c.');
+    expect([...store.data.keys()].filter((k) => k.includes('.legacy-backup.'))).toHaveLength(1);
+  });
+
+  it('leaves the active dataset unchanged when the safety copy cannot be written', async () => {
+    const seeded = buildSeedDb(new Date(t));
+    store.setItem('c.pt.demo.db.v1', JSON.stringify(seeded));
+    store.failLegacyBackup = true;
+    const s = dev('c.');
+    expect(await s.getTransactions()).toHaveLength(seeded.transactions.length);
+    expect(store.getItem('c.pt.demo.db.v1')).toBe(JSON.stringify(seeded));
+    expect(s.takeStorageNotice()).toMatch(/safety copy/i);
+  });
+
+  it('never uploads known seeds from an old account queue when backup fails', async () => {
+    const seeded = buildSeedDb(new Date(t));
+    store.setItem(`c.pt.acct.${U1.id}.db.v1`, JSON.stringify(seeded));
+    store.failLegacyBackup = true;
+    const s = dev('c.');
+    await sign(s);
+    await s.syncNow();
+    expect(cloud.live(U1.id, 'meal')).toHaveLength(0);
+    expect(cloud.live(U1.id, 'transaction')).toHaveLength(0);
+    expect(cloud.live(U1.id, 'weighIn')).toHaveLength(0);
+  });
+
+  it('tombstones known cloud seeds but keeps legitimate cloud records', async () => {
+    const s = dev('c.');
+    await sign(s);
+    const seeded = buildSeedDb(new Date(t));
+    const known = seeded.transactions[0]!;
+    const custom = { ...known, id: 'demo-tx-custom', description: 'Legitimate cloud record' };
+    for (const record of [known, custom]) {
+      cloud.rows(U1.id).set(`transaction:${record.id}`, { data: record, deleted: false, rev: 1, updatedAt: record.occurredAt, ts: ++cloud.clock });
+    }
+    await s.syncNow();
+    expect(cloud.rows(U1.id).get(`transaction:${known.id}`)!.deleted).toBe(true);
+    expect(cloud.rows(U1.id).get(`transaction:${custom.id}`)!.deleted).toBe(false);
+    expect((await s.getTransactions()).map((x) => x.id)).toEqual([custom.id]);
+    expect([...store.data.keys()].some((k) => k.includes('.legacy-backup.'))).toBe(true);
   });
 });
 
@@ -248,25 +310,25 @@ describe('guest → account merge', () => {
     return { guest, mine, mealMine };
   };
 
-  it('previews both sides, skips sample data by default, and backs up first', async () => {
+  it('previews both sides and backs up first', async () => {
     const { guest } = await setup();
     await sign(guest);
     // the cloud already has one of the user's own records
     cloud.rows(U1.id).set('transaction:cloud-only', { data: { id: 'cloud-only', type: 'income', amount: 500, currency: 'INR', category: 'salary', description: 'Cloud income', merchant: null, notes: null, occurredAt: '2026-03-01T00:00:00Z', source: 'manual' }, deleted: false, rev: 1, updatedAt: '2026-03-01T00:00:00Z', ts: ++cloud.clock });
     await guest.syncNow();
     expect(guest.needsMergePrompt()).toBe(true);
-    const p = guest.previewGuestMerge(false)!;
-    expect(p.local.transactions).toBeGreaterThan(1);
+    const p = guest.previewGuestMerge()!;
+    expect(p.local.transactions).toBe(1);
     expect(p.cloud.transactions).toBe(1);
-    expect(p.sample.transactions).toBeGreaterThan(0);
-    expect(p.willAdd).toBe(2); // my transaction + my meal; sample records are excluded
-    const r = await guest.mergeGuest({ includeSample: false });
+    expect(p.legacy.transactions).toBe(0);
+    expect(p.willAdd).toBe(2); // my transaction + my meal
+    const r = await guest.mergeGuest();
     expect(r).toMatchObject({ added: 2, confirmed: true });
     expect(store.getItem(r.backupKey)).toBeTruthy();
     const ids = (await guest.getTransactions()).map((x) => x.description);
     expect(ids).toContain('My real lunch');
     expect(ids).toContain('Cloud income'); // cloud-only kept
-    expect(ids.some((d) => d !== 'My real lunch' && d !== 'Cloud income')).toBe(false); // no sample rows
+    expect(ids.some((d) => d !== 'My real lunch' && d !== 'Cloud income')).toBe(false);
     expect(cloud.live(U1.id, 'transaction')).toHaveLength(2);
     expect(guest.needsMergePrompt()).toBe(false);
   });
@@ -274,20 +336,20 @@ describe('guest → account merge', () => {
   it('is repeatable: running it again adds nothing and duplicates nothing', async () => {
     const { guest } = await setup();
     await sign(guest);
-    await guest.mergeGuest({ includeSample: false });
+    await guest.mergeGuest();
     const counts = [cloud.live(U1.id, 'transaction').length, cloud.live(U1.id, 'meal').length];
-    const again = await guest.mergeGuest({ includeSample: false });
+    const again = await guest.mergeGuest();
     expect(again.added).toBe(0);
     expect(again.identical).toBe(2);
     expect([cloud.live(U1.id, 'transaction').length, cloud.live(U1.id, 'meal').length]).toEqual(counts);
   });
 
-  it('only uploads sample data when the user explicitly includes it', async () => {
-    const { guest } = await setup();
-    await sign(guest);
-    const r = await guest.mergeGuest({ includeSample: true });
-    expect(r.added).toBeGreaterThan(2);
-    expect(cloud.live(U1.id, 'transaction').length).toBeGreaterThan(5);
+  it('never includes exact legacy seed records in merge planning', () => {
+    const seeded = buildSeedDb(new Date('2026-03-10T08:00:00Z'));
+    const expected = seeded.meals.length + seeded.transactions.length + seeded.weighIns.length;
+    const plan = planMerge(seeded, buildEmptyDb(), { accountHasCloudSettings: false, accountHasCloudPrefs: false });
+    expect(plan.skippedLegacy).toBe(expected);
+    expect(plan.add.filter((x) => ['meal', 'transaction', 'weighIn'].includes(x.kind))).toHaveLength(0);
   });
 
   it('keeps the cloud record and saves the device version when the same id differs', async () => {
@@ -295,7 +357,7 @@ describe('guest → account merge', () => {
     await sign(guest);
     cloud.rows(U1.id).set(`transaction:${mine.id}`, { data: { ...mine, amount: 1, description: 'Edited elsewhere' }, deleted: false, rev: 3, updatedAt: '2026-03-09T00:00:00Z', ts: ++cloud.clock });
     await guest.syncNow();
-    const r = await guest.mergeGuest({ includeSample: false });
+    const r = await guest.mergeGuest();
     expect(r.differing).toBe(1);
     expect((await guest.getTransactions()).find((x) => x.id === mine.id)!.description).toBe('Edited elsewhere');
     expect(JSON.parse(guest.getConflicts()[0]!.otherJson!).description).toBe('My real lunch');
@@ -305,7 +367,7 @@ describe('guest → account merge', () => {
     const { guest } = await setup();
     await sign(guest);
     cloud.online = false;
-    const r = await guest.mergeGuest({ includeSample: false });
+    const r = await guest.mergeGuest();
     expect(r.confirmed).toBe(false);
     // the on-device guest copy is untouched, and the merge finishes on the next sync
     cloud.online = true;

@@ -48,7 +48,7 @@ const SavedStatus = ({ updated }: { updated?: boolean }) => (
       {updated ? 'Updated' : 'Saved'}
     </Badge>
     <Badge tone="neutral" className="cursor-help" icon={undefined}>
-      <span title="Demo mode: this record is stored only in this browser, not in the cloud.">Demo</span>
+      <span title="Local mode: this record is stored only in local app storage, not in the cloud.">Local</span>
     </Badge>
   </span>
 );

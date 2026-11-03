@@ -15,7 +15,8 @@ import { TrackerError } from '../errors';
 import type { ChatExchange, ChatReply, ExportBundle, RequestOptions, TrackerService, WriteOptions } from '../tracker-service';
 import { runDemoAssistant } from './demo-ai';
 import { migrateDb, pruneProcessed, BACKUP_APP, BACKUP_FORMAT_VERSION } from './persistence';
-import { buildSeedDb, type DemoDb } from './seed';
+import { buildEmptyDb, type DemoDb } from './seed';
+import { isLegacySeedId } from './legacy-records';
 
 export const GUEST_STORAGE_KEY = 'pt.demo.db.v1';
 const STORAGE_KEY = GUEST_STORAGE_KEY;
@@ -118,9 +119,9 @@ export class MockTrackerService implements TrackerService {
     }
     return this.loadFresh();
   }
-  /** What a partition with nothing saved starts with. The guest partition starts with the sample data. */
+  /** A new partition starts empty; no records or targets are invented. */
   protected loadFresh(): DemoDb {
-    return buildSeedDb(this.now());
+    return buildEmptyDb();
   }
   /** Switch to another storage partition (a different account, or back to the guest data). */
   protected reloadFrom(key: string): void {
@@ -172,12 +173,6 @@ export class MockTrackerService implements TrackerService {
   }
   private async latency(opts?: RequestOptions, ms = LATENCY_MS): Promise<void> {
     await wait(ms, opts?.signal);
-  }
-
-  async resetDemoData(): Promise<void> {
-    await wait(LATENCY_MS);
-    this.db = buildSeedDb(this.now());
-    this.persist();
   }
 
   protected get tz(): string {
@@ -574,7 +569,7 @@ export class MockTrackerService implements TrackerService {
       provider: 'demo',
       model: null,
       connection: 'demo',
-      detail: 'Replies come from a built-in rule-based demo assistant. No AI provider is called and nothing leaves your device.',
+      detail: 'Replies come from built-in on-device rules. No AI provider is called and nothing leaves your device.',
     };
   }
 
@@ -595,16 +590,21 @@ export class MockTrackerService implements TrackerService {
 
   async importData(bundle: ExportBundle): Promise<{ meals: number; transactions: number; weighIns: number }> {
     await wait(LATENCY_MS);
-    this.db.meals = clone(bundle.meals);
-    this.db.transactions = clone(bundle.transactions);
-    this.db.weighIns = clone(bundle.weighIns);
+    // Older backups can contain the records that used to ship with the app.
+    // Restore the user's own records, never those built-in placeholders.
+    const meals = bundle.meals.filter((record) => !isLegacySeedId(record.id));
+    const transactions = bundle.transactions.filter((record) => !isLegacySeedId(record.id));
+    const weighIns = bundle.weighIns.filter((record) => !isLegacySeedId(record.id));
+    this.db.meals = clone(meals);
+    this.db.transactions = clone(transactions);
+    this.db.weighIns = clone(weighIns);
     this.db.settings = { ...bundle.settings, currency: 'INR' };
     // Calendar parts are replaced only when the file has them (format 1 backups leave the calendar alone).
     // Synced Google copies are kept; they are re-created from Google, never from a backup.
     if (bundle.calendarEvents) this.db.calendarEvents = [...this.events.filter((e) => e.origin === 'google'), ...clone(bundle.calendarEvents)];
     if (bundle.calendarPrefs) this.db.calendarPrefs = clone(bundle.calendarPrefs);
     this.persist();
-    return { meals: bundle.meals.length, transactions: bundle.transactions.length, weighIns: bundle.weighIns.length };
+    return { meals: meals.length, transactions: transactions.length, weighIns: weighIns.length };
   }
 
   async eraseAllData(): Promise<void> {

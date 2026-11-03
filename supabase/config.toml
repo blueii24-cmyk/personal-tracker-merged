@@ -3,3 +3,8 @@
 # EVERY other request is authenticated inside the function by validating the caller's Supabase JWT (see index.ts: authenticate()).
 [functions.google-calendar]
 verify_jwt = false
+
+# Default AI accepts only POSTs and also resolves the user inside the function.
+# Unlike Google Calendar it has no unauthenticated OAuth callback.
+[functions.ai-chat]
+verify_jwt = true

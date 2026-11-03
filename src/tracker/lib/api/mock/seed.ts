@@ -4,9 +4,8 @@ import type { CalendarEvent, CalendarPrefs } from '@/tracker/types/calendar';
 import { itemFromFood } from './food-database';
 
 /**
- * Deterministic demo data, generated as offsets from "today" in the user's timezone so the dashboard
- * always has recent records. Replace this file (or the mock service) with real data later.
- * Nothing here is ever sent to a server.
+ * Retained legacy fixtures, generated as offsets from "today" so old databases can be recognised.
+ * New installs use buildEmptyDb(). Known fixture records are excluded from import, merge, and sync upload.
  */
 export interface DemoDb {
   version: 1;
@@ -29,7 +28,6 @@ export const DEMO_SETTINGS: UserSettings = {
   timezone: 'Asia/Kolkata',
   currency: 'INR',
   openingBalance: 9000,
-  // Sample values for the demo only — set your own in Settings.
   dailyCalorieTarget: 2800,
   dailyProteinTargetG: 100,
   monthlyBudget: 6000,
@@ -38,6 +36,31 @@ export const DEMO_SETTINGS: UserSettings = {
   preferredAiProvider: 'demo',
   preferredAiModel: null,
 };
+
+/** Empty, neutral settings for a real first run. No targets or balances are invented. */
+export const DEFAULT_SETTINGS: UserSettings = {
+  ...DEMO_SETTINGS,
+  displayName: 'You',
+  email: '',
+  openingBalance: 0,
+  dailyCalorieTarget: null,
+  dailyProteinTargetG: null,
+  monthlyBudget: null,
+};
+
+export function buildEmptyDb(): DemoDb {
+  return {
+    version: 1,
+    meals: [],
+    transactions: [],
+    weighIns: [],
+    settings: { ...DEFAULT_SETTINGS },
+    sessions: [],
+    messages: [],
+    calendarEvents: [],
+    processed: {},
+  };
+}
 
 type FoodSpec = [foodId: string, qty: number, unit?: string];
 const MEAL_TEMPLATES: Record<Exclude<MealType, 'other'>, FoodSpec[][]> = {

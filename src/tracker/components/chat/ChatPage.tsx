@@ -181,7 +181,7 @@ export default function ChatPage() {
             {ai.active
               ? `Answered by ${ai.config.model} with your own key. It only handles budgeting and bulking. Nutrition figures are estimates. Records stay in this browser.`
               : t.service.mode === 'demo'
-                ? 'Demo assistant: replies come from built-in rules, not an AI model. Records stay in this browser.'
+                ? 'Built-in assistant: replies come from on-device rules, not an AI model. Records stay in local app storage.'
                 : 'Nutrition figures are estimates.'}
           </p>
         </div>

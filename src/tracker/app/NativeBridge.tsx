@@ -5,6 +5,7 @@ import { SystemBars, SystemBarsStyle } from '@capacitor/core';
 import { useToast } from '@/tracker/components/ui/Toast';
 import { useTheme } from '@/tracker/features/theme/ThemeProvider';
 import { useTracker } from '@/tracker/features/store/TrackerProvider';
+import { useAuth } from '@/tracker/features/auth/AuthProvider';
 import { isNative } from '@/tracker/lib/platform/native';
 
 /**
@@ -16,9 +17,11 @@ export function NativeBridge() {
   const { pathname } = useLocation();
   const { toast } = useToast();
   const { service, refresh } = useTracker();
+  const { handleAuthCallback } = useAuth();
   const { resolved } = useTheme();
 
   const pathRef = useRef(pathname);
+  const seenAuthCallbacks = useRef(new Set<string>());
   useEffect(() => {
     pathRef.current = pathname;
   }, [pathname]);
@@ -76,11 +79,39 @@ export function NativeBridge() {
         refresh().catch(() => undefined);
       }),
     );
+
+    // PKCE email confirmation/recovery returns to the exact native callback.
+    // Other deep links (including Google Calendar) are left to their own handlers.
+    const onOpen = (url: string) => {
+      if (seenAuthCallbacks.current.has(url)) return;
+      seenAuthCallbacks.current.add(url);
+      void handleAuthCallback(url).then((result) => {
+        if (!result.handled) {
+          seenAuthCallbacks.current.delete(url);
+          return;
+        }
+        navigate('/settings#account');
+        if (result.error) toast({ title: "Couldn't open the sign-in link", description: result.error, tone: 'error' });
+        else toast({
+          title: result.recovery ? 'Set your new password' : 'Email confirmed',
+          description: result.recovery ? 'Enter a new password in Account, then sign in with it next time.' : 'Your account is connected and syncing.',
+          tone: 'success',
+        });
+        refresh().catch(() => undefined);
+      }).catch(() => {
+        toast({ title: "Couldn't open the sign-in link", description: 'Request a new link and try again.', tone: 'error' });
+      });
+    };
+    keep(CapApp.addListener('appUrlOpen', ({ url }) => onOpen(url)));
+    void CapApp.getLaunchUrl().then((launch) => {
+      const url = launch?.url;
+      if (live && url) onOpen(url);
+    }).catch(() => undefined);
     return () => {
       live = false;
       handles.forEach((h) => void h.remove());
     };
-  }, [navigate, refresh]);
+  }, [navigate, refresh, handleAuthCallback, toast]);
 
   return null;
 }

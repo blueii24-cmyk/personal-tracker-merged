@@ -78,7 +78,7 @@ Test the same code first with the debug APK on a real phone (see README). Do not
 | Local-only use | With no account/cloud connection, tracker records stay in app storage. This is not an accurate description after the user enables Supabase sync, Google Calendar, or an external AI provider. |
 | Optional account and cloud sync | If enabled, the user's email/account identifier and the tracker records they choose to sync are sent over HTTPS to the configured Supabase project and stored for sync and conflict handling. Declare the corresponding account, health/fitness, financial, calendar, and message/app-activity categories conservatively. |
 | Optional Google Calendar | After separate Google consent, the Edge Function reads the selected calendar and stores read-only imported copies in Supabase. If the user opts in, app-owned events are also sent to Google. The function stores an encrypted Google refresh token. Disconnecting tombstones imported copies and revokes/deletes the stored connection; it never deletes events in Google. |
-| Optional AI assistant | With the user's own key, chat text and the records needed to answer go directly from the device to the provider the user chose. Declare this user-initiated sharing conservatively. Without a key, the built-in assistant remains on-device. |
+| Optional AI assistant | With BYOK, chat text and needed records go from the device to the user's chosen provider. Signed-in default AI sends limited chat/tracker context through the authenticated Supabase `ai-chat` function to the server-configured provider. Signed-out rule-based replies stay on-device. Declare enabled data sharing conservatively. |
 | Encrypted in transit | Yes (HTTPS only; Android cleartext traffic is disabled). |
 | Deletion | *Settings → Delete all records* deletes the selected local/account tracker records; uninstalling removes local app data. This is record deletion, **not deletion of the Supabase Auth user or the user's Google account**. If account creation is enabled, satisfy Play's current in-app/web account-deletion requirements before release. |
 | Android Auto Backup | Local records (WebView storage) can be included in the user's Google backup if enabled; the Android-Keystore-protected AI key is excluded. Mention this in the policy. |
@@ -103,10 +103,11 @@ table as a legal determination.
 > store. Only if you separately opt in are app-owned events sent to Google. The app never deletes events from Google Calendar. Disconnecting
 > revokes/deletes the stored connection and removes the app's imported copies through sync tombstones.
 >
-> **Optional AI assistant.** If you turn on the assistant and add your own API key from OpenAI, Anthropic, Google or another provider you
-> choose, the messages you send, and the records needed to answer your question, are sent directly from your phone to that provider over
-> HTTPS. That provider's terms and privacy policy apply. Without a key, the built-in assistant runs on your device. Your key is stored on
-> your device, encrypted with the Android Keystore if you choose “this device”; it is not included in Supabase sync.
+> **Optional AI assistant.** If you add your own API key from OpenAI, Anthropic, Google or another provider you choose, the messages you
+> send, and the records needed to answer your question, are sent directly from your phone to that provider over HTTPS. If you are signed in
+> and use default AI, limited chat and tracker context goes through our authenticated Supabase function to the configured provider; its key
+> stays server-side. Provider terms and privacy policies apply. Signed-out rule-based replies run on your device. Your BYOK key is stored on
+> your device, encrypted with the Android Keystore if you choose “this device”; neither BYOK nor default provider keys are included in sync.
 >
 > **Backups.** If Android backup is enabled, Google may back up the app's local data under Google's policy. The app also lets you export and
 > restore a file.
@@ -120,8 +121,8 @@ table as a legal determination.
 ## 8. Pre-launch checklist
 - [ ] Tested the exact signed release/AAB-derived build on at least one real phone: first launch, restart, background/resume, back button,
       keyboard in chat, export + restore, offline, AI key add/remove, light/dark, and no duplicate native action bar.
-- [ ] Tested sign-up, confirmation, sign-in/out, recovery, persistent sessions, two-user isolation, first-sign-in merge, offline edits,
-      conflict review, and automatic/manual sync against the intended Supabase project.
+- [ ] Tested sign-up, native confirmation/recovery callback, sign-in/out, persistent sessions, two-user isolation, first-sign-in merge, offline edits,
+      conflict review, automatic/manual sync, and authenticated default AI against the intended Supabase project.
 - [ ] Tested Google consent/return, read-only imports, calendar switching, disconnect/reconnect, optional push, and revocation with a real
       Google test user; confirmed no Google event was deleted.
 - [ ] Final application ID, version code bumped, upload key backed up, Actions artifact/signature checks passed.

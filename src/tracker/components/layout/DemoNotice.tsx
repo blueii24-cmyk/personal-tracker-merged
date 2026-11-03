@@ -4,7 +4,7 @@ import { useTracker } from '@/tracker/features/store/TrackerProvider';
 import { isNative } from '@/tracker/lib/platform/native';
 import { SyncNotice } from './SyncNotice';
 
-/** Always-visible reminder that records are demo data stored only in this browser. */
+/** Always-visible reminder that signed-out records stay in local app storage. */
 export function DemoNotice({ collapsed, className }: { collapsed?: boolean; className?: string }) {
   const { service } = useTracker();
   if (service.mode !== 'demo') return <SyncNotice collapsed={collapsed} className={className} />;
@@ -20,7 +20,7 @@ export function DemoNotice({ collapsed, className }: { collapsed?: boolean; clas
     <div className={cn('flex items-start gap-2.5 rounded-lg bg-warning-soft px-3 py-2.5 text-xs text-warning', className)}>
       <FlaskConical className="mt-0.5 size-3.5 shrink-0" aria-hidden />
       <p>
-        <span className="font-semibold">Local mode.</span> Records start as sample data and are kept only {where} — nothing is saved to the cloud. Export a backup in Settings.
+        <span className="font-semibold">Local mode.</span> Records are kept only {where} — nothing is saved to the cloud. Export a backup in Settings.
       </p>
     </div>
   );

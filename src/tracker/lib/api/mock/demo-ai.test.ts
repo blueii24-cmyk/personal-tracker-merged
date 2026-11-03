@@ -88,7 +88,9 @@ describe('demo assistant', () => {
 
   it("corrects yesterday's travel expense to ₹30 when exactly one matches, otherwise asks", async () => {
     const svc = fresh();
-    // Seed has two bus fares yesterday (₹30 each): ambiguous, so it must ask.
+    // Two identical fares are ambiguous, so it must ask rather than choosing one.
+    await send(svc, 'I spent ₹30 on a bus yesterday');
+    await send(svc, 'I spent ₹30 on another bus yesterday');
     const ambiguous = await send(svc, "Correct yesterday's travel expense to ₹30.");
     expect(ambiguous.actions[0]?.status).toBe('needs_clarification');
 
@@ -113,6 +115,8 @@ describe('demo assistant', () => {
 
   it('answers budget questions from records and separates budget from balance', async () => {
     const svc = fresh();
+    await svc.updateUserSettings({ monthlyBudget: 5000 });
+    await send(svc, 'I spent ₹100 on lunch this month');
     const r = await send(svc, 'How much money do I have left this month?');
     expect(r.assistantMessage).toMatch(/left in your October 2026 budget/);
     expect(r.assistantMessage).toMatch(/tracked balance/);

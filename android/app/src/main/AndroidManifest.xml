@@ -26,6 +26,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Supabase PKCE email confirmation and password recovery. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="com.blueii24.personaltracker"
+                    android:host="auth"
+                    android:path="/callback" />
+            </intent-filter>
+
         </activity>
 
         <provider

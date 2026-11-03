@@ -45,11 +45,16 @@ try {
     grant all on schema public to service_role;
     insert into auth.users values ('${A}'), ('${B}');
   `);
-  await c.query(fs.readFileSync(new URL('../supabase/migrations/20261101000000_tracker_sync.sql', import.meta.url), 'utf8'));
-  ok('migration applies', true);
+  const migrations = [
+    '20261101000000_tracker_sync.sql',
+    '20261101000001_restrict_client_table_privileges.sql',
+    '20261103000000_default_ai_usage.sql',
+  ];
+  for (const file of migrations) await c.query(fs.readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'));
+  ok('migrations apply', true);
   // Re-applying must be safe (idempotent).
-  await c.query(fs.readFileSync(new URL('../supabase/migrations/20261101000000_tracker_sync.sql', import.meta.url), 'utf8'));
-  ok('migration is re-runnable', true);
+  for (const file of migrations) await c.query(fs.readFileSync(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'));
+  ok('migrations are re-runnable', true);
 
   // Run a callback as a given Supabase-like caller inside a rolled-back-on-error transaction.
   const as = async (role, uid, fn) => {
@@ -180,6 +185,36 @@ try {
   ok('another user sees no connection', r.ok && r.rows.length === 0);
   r = await c.query(`select has_table_privilege('service_role','google_calendar_connections','select') as s`);
   ok('service role (Edge Functions) keeps access', r.rows[0].s === true);
+
+  // --- default-AI quotas are service-only, atomic, and settle idempotently
+  const reserveArgs = `'${A}', current_date, 10, 20, 30, 1, 10, 100, 10, 1000, 1000`;
+  r = await tryQ('service_role', A, `select public.pt_ai_reserve(${reserveArgs}) as id`);
+  ok('service role can reserve AI usage', r.ok && r.rows[0].id);
+  const reservationId = r.rows[0]?.id;
+  r = await tryQ('service_role', A, `select public.pt_ai_reserve(${reserveArgs}) as id`);
+  ok('per-minute AI limit rejects excess requests', !r.ok && r.message.includes('rate_limited'));
+  r = await c.query('select requests from ai_global_usage_daily where day=current_date');
+  ok('rejected AI reservation rolls back every counter', r.rows[0].requests === 1);
+  r = await tryQ('service_role', A, 'select public.pt_ai_settle($1,5,5,10)', [reservationId]);
+  ok('service role can settle actual AI usage', r.ok);
+  await tryQ('service_role', A, 'select public.pt_ai_settle($1,5,5,10)', [reservationId]);
+  r = await c.query(`select input_tokens+output_tokens as tokens, cost_micros from ai_user_usage_daily where user_id='${A}' and day=current_date`);
+  ok('AI settlement is exact and idempotent', r.rows[0].tokens === 10 && r.rows[0].cost_micros === 10);
+  const userLimited = `'${B}', current_date-1, 10, 20, 30, 10, 10, 5, 10, 1000, 1000`;
+  r = await tryQ('service_role', B, `select public.pt_ai_reserve(${userLimited})`);
+  ok('per-user daily token limit fails closed', !r.ok && r.message.includes('user_quota_exceeded'));
+  const globalLimited = `'${B}', current_date-1, 10, 20, 30, 10, 10, 100, 10, 5, 1000`;
+  r = await tryQ('service_role', B, `select public.pt_ai_reserve(${globalLimited})`);
+  ok('global daily token limit fails closed', !r.ok && r.message.includes('global_quota_exceeded'));
+  const spendLimited = `'${B}', current_date-1, 10, 20, 30, 10, 10, 100, 10, 1000, 1`;
+  r = await tryQ('service_role', B, `select public.pt_ai_reserve(${spendLimited})`);
+  ok('global spending cap fails closed', !r.ok && r.message.includes('global_quota_exceeded'));
+  r = await c.query('select count(*)::int as n from ai_global_usage_daily where day=current_date-1');
+  ok('all failed quota attempts roll back global usage', r.rows[0].n === 0);
+  r = await tryQ('authenticated', A, 'select * from ai_user_usage_daily');
+  ok('authenticated cannot read AI usage tables', !r.ok && r.code === '42501');
+  r = await tryQ('authenticated', A, `select public.pt_ai_reserve(${reserveArgs})`);
+  ok('authenticated cannot execute AI usage RPCs', !r.ok && r.code === '42501');
 
   // --- no permissive policies anywhere
   r = await c.query(`select tablename, policyname from pg_policies where schemaname='public' and (qual = 'true' or with_check = 'true' or 'public' = any(roles) or 'anon' = any(roles))`);

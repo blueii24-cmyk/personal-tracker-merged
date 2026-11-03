@@ -10,7 +10,7 @@ import {
 } from '@/tracker/types/domain';
 import { normalizeEvent, normalizePrefs } from '@/tracker/features/calendar/calendar';
 import type { ExportBundle } from '../tracker-service';
-import { DEMO_SETTINGS, type DemoDb } from './seed';
+import { DEFAULT_SETTINGS, type DemoDb } from './seed';
 
 export const DB_VERSION = 1;
 export const BACKUP_APP = 'personal-tracker';
@@ -90,7 +90,7 @@ export function normalizeWeighIn(raw: unknown): WeighIn | null {
 }
 
 export function normalizeSettings(raw: unknown): UserSettings {
-  const base: UserSettings = { ...DEMO_SETTINGS };
+  const base: UserSettings = { ...DEFAULT_SETTINGS };
   if (!isObj(raw)) return base;
   const target = (v: unknown, max: number, fallback: number | null): number | null => {
     if (v === null) return null;

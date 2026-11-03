@@ -2,9 +2,8 @@
 /**
  * Builds the static web bundle that is packaged into the Android app (output: ./out).
  *
- * The app has no server dependency: all records and AI calls are handled on the device. The only server code is the
- * /api/health route used by the hosting preview, which a static export can't contain, so it is moved aside for the
- * duration of the build and always restored.
+ * Tracker records remain local-first; optional hosted services use Supabase directly. Next.js API routes used by the
+ * hosting preview/BYOK web relay can't be included in a static export, so they are moved aside for the build and always restored.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, renameSync, rmSync } from "node:fs";
