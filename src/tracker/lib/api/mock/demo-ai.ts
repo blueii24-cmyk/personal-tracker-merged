@@ -168,7 +168,7 @@ export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAi
 }
 
 const HELP_TEXT =
-  "I can log what you eat, what you spend or receive, and your weight, then answer questions from your saved records. For example: \"I ate three eggs and a glass of milk\", \"I spent ₹60 travelling to college\", \"I received ₹2,000 pocket money\", \"My weight is 48.2 kg today\", \"How much protein have I eaten today?\" or \"Correct yesterday's travel expense to ₹30\". This is the demo assistant, so it understands a limited set of phrasings.";
+  "I can log what you eat, what you spend or receive, and your weight, then answer questions from your saved records. For example: \"I ate three eggs and a glass of milk\", \"I spent ₹60 travelling to college\", \"I received ₹2,000 pocket money\", \"My weight is 48.2 kg today\", \"How much protein have I eaten today?\" or \"Correct yesterday's travel expense to ₹30\". This built-in assistant uses on-device rules, so it understands a limited set of phrasings.";
 
 /* --------------------------------- meals --------------------------------- */
 

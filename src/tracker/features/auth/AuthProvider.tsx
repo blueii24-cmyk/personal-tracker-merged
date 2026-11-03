@@ -8,6 +8,7 @@ import { isSyncCapable, type SyncStatus } from '@/tracker/sync/synced-service';
 import { purgeAccountCache } from '@/tracker/sync/account-cache';
 import { SupabaseRemote } from '@/tracker/sync/supabase-remote';
 import { MergeDialog } from '@/tracker/components/account/MergeDialog';
+import { parseAuthCallback, preferredAuthRedirect } from './callback';
 
 const LOCAL_STATUS: SyncStatus = { state: 'local-only', signedIn: false, email: null, pending: 0, conflicts: 0, lastSyncedAt: null, message: null };
 
@@ -24,6 +25,7 @@ export interface AuthApi {
   signOut(opts?: { forgetDevice?: boolean }): Promise<string | null>;
   sendReset(email: string): Promise<string | null>;
   setNewPassword(password: string): Promise<string | null>;
+  handleAuthCallback(url: string): Promise<{ handled: boolean; error: string | null; recovery?: boolean }>;
   syncNow(): void;
   openMerge(): void;
 }
@@ -49,11 +51,11 @@ export function authMessage(e: { message?: string; status?: number; code?: strin
   return 'Sign-in failed. Try again in a moment.';
 }
 
-const redirectTo = (): string | undefined => {
-  const fixed = (process.env.NEXT_PUBLIC_AUTH_REDIRECT_URL ?? '').trim();
-  if (fixed) return fixed;
-  return isNative() || typeof window === 'undefined' ? undefined : window.location.origin;
-};
+const redirectTo = (): string | undefined => preferredAuthRedirect(
+  isNative(),
+  process.env.NEXT_PUBLIC_AUTH_REDIRECT_URL ?? '',
+  typeof window === 'undefined' ? undefined : window.location.origin,
+);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { service, refresh } = useTracker();
@@ -130,6 +132,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [cap, user]);
 
+  const handleAuthCallback = useCallback(async (raw: string) => {
+    const parsed = parseAuthCallback(raw);
+    if (!parsed) return { handled: false, error: null };
+    if (parsed.error) return { handled: true, error: parsed.error };
+    if (!sb || !parsed.callback) return { handled: true, error: 'Cloud sync isn’t set up in this build.' };
+    setRestoring(true);
+    const { error } = await sb.auth.exchangeCodeForSession(parsed.callback.code);
+    if (error) {
+      setRestoring(false);
+      return { handled: true, error: authMessage(error) };
+    }
+    if (parsed.callback.recovery) setRecovery(true);
+    // onAuthStateChange adopts the session, attaches the account partition,
+    // and starts sync. Do not duplicate that work here.
+    return { handled: true, error: null, recovery: parsed.callback.recovery };
+  }, [sb]);
+
   const api = useMemo<AuthApi>(
     () => ({
       configured: isBackendConfigured && Boolean(sb),
@@ -173,10 +192,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRecovery(false);
         return null;
       },
+      handleAuthCallback,
       syncNow: () => void cap?.syncNow(),
       openMerge: () => setMergeOpen(true),
     }),
-    [sb, cap, restoring, user, sync, recovery],
+    [sb, cap, restoring, user, sync, recovery, handleAuthCallback],
   );
 
   const onMerged = useCallback(() => void refreshRef.current().catch(() => undefined), []);

@@ -124,6 +124,21 @@ describe('MockTrackerService storage safety', () => {
     await expect(svc.createMeal({ mealType: 'lunch', eatenAt: NOW.toISOString(), notes: null, items: [{ foodName: 'Rice', quantity: 1, unit: 'cup', caloriesKcal: Number.NaN, proteinG: 4, isEstimate: false, nutritionSource: 'user_entered' }] })).rejects.toMatchObject({ code: 'VALIDATION' });
   });
 
+  it('filters exact legacy seed records on import and reports only restored records', async () => {
+    const svc = new MockTrackerService(() => NOW);
+    const exported = await svc.exportData();
+    const seeded = buildSeedDb(NOW);
+    const custom = { ...seeded.transactions[0]!, id: 'demo-tx-custom', description: 'Legitimate imported record' };
+    exported.meals = seeded.meals;
+    exported.transactions = [...seeded.transactions, custom];
+    exported.weighIns = seeded.weighIns;
+    const restored = await svc.importData(exported);
+    expect(restored).toEqual({ meals: 0, transactions: 1, weighIns: 0 });
+    expect(await svc.getMeals()).toHaveLength(0);
+    expect(await svc.getWeighIns()).toHaveLength(0);
+    expect(await svc.getTransactions()).toEqual([custom]);
+  });
+
   it('exports and restores everything, and erases on request', async () => {
     const svc = new MockTrackerService(() => NOW);
     await svc.createTransaction({ ...tx, description: 'Unique backup test' });

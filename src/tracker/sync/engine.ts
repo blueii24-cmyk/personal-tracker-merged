@@ -11,6 +11,7 @@
 import { applyEntity, canonical, getEntity, KIND_ORDER, keyOf, parseKey, SINGLETON_IDS, stableJson, type EntityRef, type Kind } from './entities';
 import { resolveConflict } from './resolve';
 import type { DemoDb } from '@/tracker/lib/api/mock/seed';
+import { isLegacySeedId } from '@/tracker/lib/api/mock/legacy-records';
 
 export interface RemoteRecord {
   kind: Kind;
@@ -130,6 +131,12 @@ export class SyncEngine {
     const at = this.stamp();
     for (const [key, e] of snapshot) {
       const m = this.state.meta[key];
+      // Never introduce an exact legacy seed as a new cloud record. A known
+      // cloud revision is allowed through so cleanup can sync its tombstone.
+      if (isLegacySeedId(e.id) && (!m || m.rev === 0)) {
+        if (m) delete this.state.meta[key];
+        continue;
+      }
       if (!m) {
         if (SINGLETON_IDS[e.kind]) continue;
         this.state.meta[key] = { rev: 0, dirty: true, deleted: false, updatedAt: at, syncedJson: null };
@@ -226,6 +233,12 @@ export class SyncEngine {
     const m = this.state.meta[key];
     if (!m || !m.dirty) return false;
     const { kind, id } = parseKey(key);
+    if (!m.deleted && m.rev === 0 && isLegacySeedId(id)) {
+      // Defense in depth: even an old/corrupt queue cannot upload known seeds.
+      delete this.state.meta[key];
+      this.save(this.state);
+      return false;
+    }
     const cur = m.deleted ? null : getEntity(this.local.db(), kind, id);
     if (!m.deleted && cur == null) {
       // Changed since it was queued and now gone: treat as a delete (reconcile covers the rest).

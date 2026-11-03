@@ -28,11 +28,11 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
-/** `AiChatResponse` plus the demo provider id. A real backend returns a concrete AiProviderId. */
+/** `AiChatResponse` plus the built-in rule-based provider id. */
 export type ChatReply = Omit<AiChatResponse, 'provider' | 'model'> & {
   provider: AiProviderId | 'demo';
   model: string;
-  /** Where saved records live. The UI labels demo saves as "Demo" and never as cloud-saved. */
+  /** Where saved records live. Local saves are never labelled as cloud-saved. */
   persistence: 'demo' | 'cloud';
 };
 
@@ -68,7 +68,7 @@ export interface ExportBundle {
 }
 
 export interface TrackerService {
-  /** `demo` = in-browser mock data. `connected` = real persistence. */
+  /** `demo` = local app storage. `connected` = local-first storage with account sync. */
   readonly mode: 'demo' | 'connected';
 
   getDashboardSummary(opts?: RequestOptions): Promise<DashboardSummary>;
@@ -122,8 +122,6 @@ export interface TrackerService {
   eraseAllData(): Promise<void>;
   /** A one-time message when stored data had to be set aside at startup, or storage is unavailable. */
   takeStorageNotice(): string | null;
-  /** Demo only: wipe local demo data and re-seed. Absent on real backends. */
-  resetDemoData?(): Promise<void>;
 }
 
 export function createTrackerService(): TrackerService {

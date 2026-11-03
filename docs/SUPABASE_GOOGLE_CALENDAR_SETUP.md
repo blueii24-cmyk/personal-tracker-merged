@@ -2,7 +2,7 @@
 
 This runbook matches the repository's **current local-first Supabase sync implementation** and its AES-GCM-encrypted Google refresh-token storage. It supplements [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) and [GOOGLE_CALENDAR_SETUP.md](./GOOGLE_CALENDAR_SETUP.md); it does not replace them with another schema or backend.
 
-Completing these dashboard steps is separate from verifying a hosted project. Do not claim that authentication, cloud sync, Google Calendar, or an APK works until the corresponding checks below have actually passed.
+Completing these dashboard steps is separate from verifying a hosted project. Do not claim that authentication, cloud sync, default AI, Google Calendar, or an APK works until the corresponding checks below have actually passed. For project-specific current status and exact remaining actions, use [PRODUCTION_CHECKLIST.md](./PRODUCTION_CHECKLIST.md).
 
 ## 1. Verified implementation map
 
@@ -11,7 +11,7 @@ Completing these dashboard steps is separate from verifying a hosted project. Do
 | Local/offline data | `SyncedTrackerService` always writes the on-device database first; it behaves like the local mock when Supabase is absent or the user is signed out. |
 | Cloud sync | `src/tracker/sync/` implements queued writes, incremental pulls, revision checks, tombstones, conflict review, and guest-to-account merge. |
 | Browser Supabase client | `src/tracker/lib/supabase/client.ts` uses PKCE, persistent sessions, and automatic token refresh. Only the project URL and publishable key reach the client. |
-| Schema | `supabase/migrations/20261101000000_tracker_sync.sql` is the authoritative migration. Do not add a second tracker schema with different table names. |
+| Schema | The two `20261101000000…`/`20261101000001…` tracker migrations are authoritative; `20261103000000_default_ai_usage.sql` adds service-only AI quotas without replacing them. |
 | SQL checks | `scripts/test-rls.mjs` applies the migration twice to a scratch plain-Postgres database and checks RLS, revision guards, constraints, deduplication, and private Google tables. It uses Supabase auth/role stand-ins; it is not a live Supabase test. |
 | Calendar | App events and preferences sync through Supabase. Optional Google access is implemented by `supabase/functions/google-calendar/`. |
 | Google secrets | The Edge Function encrypts the refresh token with `GOOGLE_TOKEN_ENC_KEY`. The browser/APK receives status and calendar metadata, never Google tokens. This implementation does **not** use Supabase Vault. |
@@ -24,14 +24,15 @@ Completing these dashboard steps is separate from verifying a hosted project. Do
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Local web env, Vercel, and GitHub Actions repository variables used by the Android build | Public project identifier; still use the real Personal Tracker project, not an arbitrary accessible project. |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Same public-client build environments | Public by design; RLS is the data boundary. A legacy anon key is equivalent only if that is what the project supplies. |
-| `NEXT_PUBLIC_AUTH_REDIRECT_URL` | Optional web build setting | Public web origin used for email confirmation/password recovery. Do not substitute the Supabase callback or an invented Android scheme. |
+| `NEXT_PUBLIC_AUTH_REDIRECT_URL` | Optional web build setting | Public web origin used for email confirmation/password recovery. Android automatically uses `com.blueii24.personaltracker://auth/callback` instead. |
 | Supabase secret/service-role key | Only trusted server infrastructure; the hosted Edge Function receives platform-provided server credentials | Never in `NEXT_PUBLIC_*`, the APK, Git, logs, screenshots, or chat. It bypasses RLS. |
 | `GOOGLE_CLIENT_ID` | Supabase Edge Function secret/configuration | OAuth client identifier; not required by the browser/APK in this architecture. |
 | `GOOGLE_CLIENT_SECRET` | Supabase Edge Function secrets only | Never ship or reveal it. |
 | `GOOGLE_TOKEN_ENC_KEY` | Supabase Edge Function secrets only | Base64-encoded 32 random bytes. Back it up securely; losing it means users must reconnect Google. |
 | `APP_ALLOWED_ORIGINS` | Supabase Edge Function configuration | Comma-separated HTTPS web origins. Put the primary web return origin first. |
 | Google refresh/access tokens | Created and used only by the Edge Function | Never place them in localStorage, client tables, Vercel public envs, the APK, logs, or chat. |
-| AI provider keys | Existing local/Keystore-backed BYOK storage | Never migrate or synchronize them with tracker records. |
+| BYOK provider keys | Existing local/Keystore-backed storage | Never migrate or synchronize them with tracker records. |
+| Default `AI_API_KEY` | Supabase Edge Function secrets only | Never ship it to the browser/APK or expose it through `NEXT_PUBLIC_*`; clients cannot select the default provider/model/URL. |
 
 Official references: [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys), [Edge Function secrets](https://supabase.com/docs/guides/functions/secrets), [Google OAuth for web-server applications](https://developers.google.com/identity/protocols/oauth2/web-server), and [OAuth security best practices](https://developers.google.com/identity/protocols/oauth2/resources/best-practices).
 
@@ -51,7 +52,7 @@ Official references: [Supabase API keys](https://supabase.com/docs/guides/gettin
 - Never test migration or merge behavior against the only copy of real user data. Use scratch accounts and representative non-sensitive records first.
 - Do not run seed/reset commands against production.
 
-### C. Apply the one authoritative migration
+### C. Apply the authoritative migrations
 
 Use the supported CLI migration workflow from the repository root:
 
@@ -62,7 +63,7 @@ npx supabase@2.122.0 db push --dry-run
 npx supabase@2.122.0 db push
 ```
 
-Review the dry run before the final command. The migration is `supabase/migrations/20261101000000_tracker_sync.sql`; do not paste a second experimental tracker migration after it. CLI references: [local development workflows](https://supabase.com/docs/guides/local-development/cli-workflows) and [database migrations](https://supabase.com/docs/guides/deployment/database-migrations).
+Review the dry run before the final command. Apply the two existing tracker migrations followed by `20261103000000_default_ai_usage.sql`; do not replace them with a parallel schema. CLI references: [local development workflows](https://supabase.com/docs/guides/local-development/cli-workflows) and [database migrations](https://supabase.com/docs/guides/deployment/database-migrations).
 
 ### D. Configure email authentication and redirects
 
@@ -70,7 +71,7 @@ Review the dry run before the final command. The migration is `supabase/migratio
 2. In **Authentication → URL Configuration**, set the primary Site URL and allow-list the exact app URLs used for confirmation and recovery.
 3. Configure the production web URL separately from local development URLs. Do not use wildcards as a substitute for listing known environments.
 4. `NEXT_PUBLIC_AUTH_REDIRECT_URL` is the Supabase-to-app return page. It is **not** Google's OAuth callback and is not a Google-issued value.
-5. The current Android flow does not register an auth deep link. Password recovery finishes in the browser, after which the user signs in inside the app. Do not add an intent filter or custom scheme unless that flow is deliberately implemented and tested.
+5. Android registers `com.blueii24.personaltracker://auth/callback` for PKCE confirmation and recovery. Allow-list that exact callback in Supabase. The app exchanges the code in its existing WebView and adopts the session automatically; the WebView origin/hostname/scheme remain unchanged.
 
 Official references: [Supabase redirect URLs](https://supabase.com/docs/guides/auth/redirect-urls) and [email configuration](https://supabase.com/docs/guides/auth/general-configuration).
 
@@ -113,7 +114,7 @@ For the SQL suite, use a **scratch local Postgres administrator connection**. Th
 RLS_TEST_ADMIN_URL='<LOCAL_SCRATCH_POSTGRES_ADMIN_URL>' node scripts/test-rls.mjs
 ```
 
-Require `RLS/migration checks: 60 passed, 0 failed`. The suite verifies, among other things:
+Require the script to finish with `0 failed` (the pass count grows with coverage). It applies all three migrations twice and verifies, among other things:
 
 - user A cannot read, update, or delete user B's records;
 - signed-out callers cannot read private tables or call the meal RPC;
@@ -135,7 +136,7 @@ The implemented behavior that must remain intact:
 - Local writes succeed offline and remain queued across restarts.
 - Sync retries on launch/resume, reconnect, explicit sync, and the in-app interval.
 - First-login guest migration is **merge, never replace**: preview first, keep cloud-only and guest records, deduplicate stable IDs, and leave the guest copy intact.
-- Sample (`demo-*`) records are excluded unless the user explicitly includes them.
+- Only exact old seed IDs (`demo-meal-<n>`, `demo-tx-<n>`, `demo-weight-<n>`) are excluded and cleaned after a safety copy. Unknown `demo-` and legitimate records are preserved; there is no option to upload known seeds.
 - A safety copy is created before guest merge. Do not describe the ordinary export as a chat-inclusive or OAuth backup.
 - Revision checks reject stale writes. Conflicting versions are available for review rather than being silently erased.
 - AI keys and Google OAuth tokens are never part of tracker synchronization.
@@ -143,7 +144,7 @@ The implemented behavior that must remain intact:
 Test with two non-production accounts/devices:
 
 1. Create different local records in A and B; confirm no cross-account rows appear.
-2. Create local guest records, sign in, inspect the merge preview, test both sample-data choices, and repeat the merge to check idempotency.
+2. Create local guest records, sign in, inspect the merge preview, confirm known legacy seeds are always excluded, and repeat the merge to check idempotency.
 3. Edit the same record on two devices while offline; reconnect both and verify the revision/conflict path and visible review entry.
 4. Disable the network during a push, retry, and confirm no duplicates.
 5. Delete offline, reconnect, and confirm the tombstone synchronizes without resurrecting the row.
@@ -152,7 +153,13 @@ Test with two non-production accounts/devices:
 
 The automated sync tests cover the engine and merge logic; only real device/hosted testing can establish browser WebView, Auth, network, and production-data behavior.
 
-## 7. Ordered Google Cloud + Edge Function setup
+## 7. Authenticated default AI
+
+The `ai-chat` Edge Function provides optional server-funded/default AI for signed-in users while preserving BYOK. It uses server-only provider credentials, server-built fixed instructions, the eight existing tool schemas, request/time/output limits, and atomic per-minute/daily/global usage reservations. It never executes tracker tools or stores prompts in usage tables.
+
+Apply `20261103000000_default_ai_usage.sql`, configure `AI_*` Function secrets, deploy with JWT verification enabled, and follow [DEFAULT_AI_SETUP.md](./DEFAULT_AI_SETUP.md). Optional dollar spending caps fail closed without both provider token prices. A `configured` status or successful deployment does not prove model compatibility, provider connectivity, quota enforcement, or real tool writes; test those separately.
+
+## 8. Ordered Google Cloud + Edge Function setup
 
 Google Calendar is optional and separate from Supabase sign-in. The in-app calendar does not require Google credentials.
 
@@ -210,7 +217,7 @@ The current integration is intentionally not unrestricted bidirectional editing:
 
 Do not label these limitations as full two-way Google Calendar editing.
 
-## 8. Android and Vercel release checks
+## 9. Android and Vercel release checks
 
 ### Android
 
@@ -232,16 +239,16 @@ Export local data before installing an APK signed by a different key or uninstal
 4. Check runtime logs without recording tokens or personal record contents.
 5. Interpret `/api/health` correctly: 503 `database: not_configured` is expected when the optional template `DATABASE_URL` is absent; it does not test Supabase or prove tracker sync health.
 
-## 9. Final never-share / handoff checklist
+## 10. Final never-share / handoff checklist
 
 - [ ] Correct Supabase project identity established without exposing credentials.
 - [ ] Existing data backed up before hosted schema work.
-- [ ] Only `20261101000000_tracker_sync.sql` applied as the tracker schema.
-- [ ] Local typecheck, lint, unit tests, production build, and 58 SQL checks passed.
+- [ ] Both tracker migrations and `20261103000000_default_ai_usage.sql` reviewed/applied in order.
+- [ ] Local typecheck, lint, unit tests, production build, and the SQL suite completed with zero failures.
 - [ ] Two real users and signed-out access tested on the intended Supabase project.
-- [ ] Merge preview, sample choice, retries, duplicates, conflicts, offline edits, and reconnects tested.
+- [ ] Merge preview, exact legacy exclusion, retries, duplicates, conflicts, offline edits, and reconnects tested.
 - [ ] Vercel and Android rebuilt with the same intended public Supabase configuration.
 - [ ] Google Web OAuth callback exactly matches the Edge Function URL.
-- [ ] Google secret, token-encryption key, service-role/secret keys, refresh tokens, passwords, and AI keys were never pasted into chat, Git, logs, or `NEXT_PUBLIC_*`.
+- [ ] Google secret, token-encryption key, service-role/secret keys, refresh tokens, passwords, BYOK/default-AI keys, and signing secrets were never pasted into chat, Git, logs, or `NEXT_PUBLIC_*`.
 - [ ] Debug APK exists, is non-empty, installs on a test device, and is available as a downloadable Actions artifact.
 - [ ] Any unrun hosted, real-Google, physical-device, or production-data check is reported as unverified.

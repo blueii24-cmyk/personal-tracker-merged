@@ -6,6 +6,8 @@ offline. Optionally, sign in to keep a synced cloud copy (Supabase) and connect 
 
 - Audit, fixes, test results, limitations: [docs/AUDIT.md](docs/AUDIT.md)
 - Cloud sync setup (Supabase, SQL, env vars, RLS tests, conflict policy): [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md)
+- Authenticated default-AI relay and quotas: [docs/DEFAULT_AI_SETUP.md](docs/DEFAULT_AI_SETUP.md)
+- Exact remaining production/manual setup: [docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 - Optional Google Calendar setup: [docs/GOOGLE_CALENDAR_SETUP.md](docs/GOOGLE_CALENDAR_SETUP.md)
 - Consolidated backend, Android and Vercel release checklist: [docs/SUPABASE_GOOGLE_CALENDAR_SETUP.md](docs/SUPABASE_GOOGLE_CALENDAR_SETUP.md)
 - Google Play release, signing, Data Safety, privacy policy template: [docs/ANDROID_RELEASE.md](docs/ANDROID_RELEASE.md)
@@ -57,10 +59,10 @@ which **deletes the app's records**: export a backup (Settings → Your data) be
 | `src/tracker/` | The whole app (unchanged architecture) |
 | `src/tracker/sync/` | Local-first two-way sync: entity tracking, conflict policy, engine, Supabase store, guest→account merge |
 | `src/tracker/components/calendar/` | In-app calendar (month/agenda), event dialog, customization, optional Google card |
-| `supabase/` | SQL migration (RLS), `google-calendar` Edge Function |
+| `supabase/` | Tracker/AI usage migrations, `google-calendar` and authenticated `ai-chat` Edge Functions |
 | `src/tracker/lib/api/mock/persistence.ts` | Versioned migration, record validation, backup parsing |
 | `src/tracker/lib/platform/native.ts` | Android detection + Keystore plugin interface |
-| `src/tracker/app/NativeBridge.tsx` | Back button, resume, offline notices, system bar style |
+| `src/tracker/app/NativeBridge.tsx` | Back button, resume, PKCE auth callback, offline notices, system bar style |
 | `android/` | Capacitor Android project (custom `SecureKeyPlugin.java`, backup rules, icons, splash) |
 | `capacitor.config.ts` | App ID, name, SystemBars/splash config |
 

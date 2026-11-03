@@ -41,7 +41,7 @@ function SignedOutForm() {
       } else if (mode === 'up') {
         const r = await auth.signUp(email, password);
         if (r.error) setError(r.error);
-        else if (r.needsConfirmation) setNote('Check your email and open the confirmation link, then come back and sign in.');
+        else if (r.needsConfirmation) setNote(isNative() ? 'Check your email and open the confirmation link. It returns to this app and connects your account automatically.' : 'Check your email and open the confirmation link to finish creating your account.');
         else toast({ title: 'Account created', tone: 'success' });
       } else {
         const e = await auth.sendReset(email);

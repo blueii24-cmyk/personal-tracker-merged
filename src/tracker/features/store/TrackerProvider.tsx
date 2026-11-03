@@ -35,7 +35,6 @@ export interface TrackerApi extends TrackerState {
   updateWeighIn: (id: string, i: WeighInInput) => Promise<WeighIn>;
   deleteWeighIn: (id: string) => Promise<() => Promise<void>>;
   updateSettings: (i: UserSettingsInput) => Promise<UserSettings>;
-  resetDemoData: () => Promise<void>;
 }
 
 const TrackerContext = createContext<TrackerApi | null>(null);
@@ -136,10 +135,6 @@ export function TrackerProvider({ service, children }: { service: TrackerService
         return del(() => service.deleteWeighIn(id), () => service.restoreWeighIn(prev!));
       },
       updateSettings: (i) => after(service.updateUserSettings(i)),
-      resetDemoData: async () => {
-        if (!service.resetDemoData) return;
-        await after(service.resetDemoData());
-      },
     };
   }, [state, service, today, timezone, refresh]);
 

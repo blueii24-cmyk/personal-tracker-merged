@@ -17,7 +17,7 @@ const MAX_OUTPUT_TOKENS = 1500;
 export interface RunChatArgs {
   service: TrackerService;
   config: ByokConfig;
-  apiKey: string;
+  apiKey?: string;
   input: AiChatRequest;
   signal?: AbortSignal;
   now?: () => Date;
@@ -53,8 +53,8 @@ function fallbackText(actions: AiActionResult[], reason: string): string {
 }
 
 /**
- * One chat turn answered by the user's own model. The model only ever sees the built-in rules, the eight
- * tracker tools and the user's notes; every tool argument is validated here before anything is written.
+ * One chat turn answered by BYOK or the authenticated default relay. The model only ever sees the built-in
+ * rules, the eight tracker tools and the user's notes; every tool argument is validated here before anything is written.
  */
 export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   const { service, config, apiKey, input, signal } = args;
@@ -67,7 +67,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   const prior = await service.findChatReply(input.clientMessageId);
   if (prior) return prior;
 
-  const adapter = args.adapter ?? createAdapter(config, apiKey);
+  const adapter = args.adapter ?? createAdapter(config, apiKey ?? '');
   const settings = await service.getUserSettings();
   const history = input.sessionId ? await service.getChatHistory(input.sessionId) : [];
   const system = buildSystemPrompt(settings, clock(), config.notes);
@@ -79,11 +79,26 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   let writes = 0;
   let calls = 0;
   let finalText = '';
+  let responseModel = config.model.trim();
   let interrupted: string | null = null;
 
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      const out = await adapter.generate({ model: config.model.trim(), system, messages, tools: AI_TOOLS, maxOutputTokens: MAX_OUTPUT_TOKENS, signal });
+      const out = await adapter.generate({
+        model: config.model.trim(), system, messages, tools: AI_TOOLS, maxOutputTokens: MAX_OUTPUT_TOKENS, signal,
+        relayContext: {
+          settings: {
+            timezone: settings.timezone,
+            dailyCalorieTarget: settings.dailyCalorieTarget,
+            dailyProteinTargetG: settings.dailyProteinTargetG,
+            monthlyBudget: settings.monthlyBudget,
+            targetWeightKg: settings.targetWeightKg,
+            weightUnit: settings.weightUnit,
+          },
+          notes: config.notes,
+        },
+      });
+      if (out.model) responseModel = out.model;
       if (!out.toolCalls.length) {
         if (out.finishReason === 'provider_error' && !out.text) throw new TrackerError('PROVIDER_UNAVAILABLE', 'The model declined to answer that.', { retryable: true });
         if (out.finishReason === 'length' && !out.text) throw new TrackerError('PROVIDER_UNAVAILABLE', 'The model ran out of room before replying. Try a shorter message.', { retryable: true });
@@ -144,7 +159,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
     actions,
     dashboardInvalidation: [...invalidation],
     provider: config.providerId,
-    model: config.model.trim(),
+    model: responseModel,
   });
 }
 

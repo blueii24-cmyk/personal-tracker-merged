@@ -30,6 +30,11 @@ export type ProviderGenerateInput = {
   timeoutMs?: number;
   /** Cancels the in-flight HTTP request. */
   signal?: AbortSignal;
+  /** Authenticated default relay only; BYOK adapters ignore this. */
+  relayContext?: {
+    settings: Pick<import('../../types/domain').UserSettings, 'timezone' | 'dailyCalorieTarget' | 'dailyProteinTargetG' | 'monthlyBudget' | 'targetWeightKg' | 'weightUnit'>;
+    notes: string;
+  };
 };
 
 export type ProviderGenerateOutput = {
@@ -38,6 +43,8 @@ export type ProviderGenerateOutput = {
   finishReason: 'stop' | 'tool_calls' | 'length' | 'provider_error';
   usage?: { inputTokens?: number; outputTokens?: number };
   providerRequestId?: string;
+  /** Actual configured model, when supplied by an authenticated relay. */
+  model?: string;
 };
 
 export interface AiProviderAdapter {

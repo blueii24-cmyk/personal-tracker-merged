@@ -4,11 +4,12 @@ import type { AiProviderAdapter, AiProviderId } from '../provider';
 import { AnthropicAdapter } from './anthropic';
 import { GeminiAdapter } from './gemini';
 import { normalizeBaseUrl, OPENAI_BASE_URL, OpenAiAdapter } from './openai';
+import { NOTES_MAX } from './system-prompt';
 
 export type KeyStorage = 'session' | 'device';
 
 export interface ByokConfig {
-  /** When false the saved key stays put but the demo assistant answers. */
+  /** When false the saved key stays put but the built-in assistant answers. */
   enabled: boolean;
   providerId: AiProviderId;
   model: string;
@@ -22,7 +23,7 @@ export interface ByokConfig {
   storage: KeyStorage;
 }
 
-export const NOTES_MAX = 800;
+export { NOTES_MAX } from './system-prompt';
 export const DEFAULT_CONFIG: ByokConfig = { enabled: false, providerId: 'openai', model: '', autoModel: true, baseUrl: '', notes: '', storage: 'session' };
 
 export interface ProviderInfo {

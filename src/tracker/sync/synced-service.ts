@@ -1,14 +1,15 @@
 /**
  * Local-first service with optional cloud sync.
  *
- * Without a signed-in account this IS the local service: same storage key, same sample data, same behaviour.
+ * Without a signed-in account this IS the local service: same storage key and local-first behaviour.
  * With an account, records live in a per-account partition on this device (so another user can never see them), every
  * change is tracked per record, and `SyncEngine` keeps the cloud copy in step in both directions. Local reads and writes
  * never wait for the network.
  */
 import { GUEST_STORAGE_KEY, MockTrackerService } from '@/tracker/lib/api/mock/mock-tracker-service';
 import { migrateDb } from '@/tracker/lib/api/mock/persistence';
-import { buildSeedDb, DEMO_SETTINGS, type DemoDb } from '@/tracker/lib/api/mock/seed';
+import { buildEmptyDb, DEFAULT_SETTINGS, type DemoDb } from '@/tracker/lib/api/mock/seed';
+import { withoutLegacySeedRecords } from '@/tracker/lib/api/mock/legacy-records';
 import { TrackerError } from '@/tracker/lib/api/errors';
 import type { TrackerService } from '@/tracker/lib/api/tracker-service';
 import { applyEntity, canonical, keyOf, snapshotEntities, type EntityRef } from './entities';
@@ -33,7 +34,7 @@ export interface MergeResult {
   identical: number;
   /** Records with the same id but different content: the cloud version was kept and the device version saved as a conflict entry. */
   differing: number;
-  skippedSample: number;
+  skippedLegacy: number;
   /** The cloud has confirmed everything (nothing left pending). Only then is it safe to treat the cloud as holding the data. */
   confirmed: boolean;
   backupKey: string;
@@ -49,8 +50,8 @@ export interface SyncCapable {
   resolveConflict(id: string, action: 'restore' | 'dismiss'): void;
   needsMergePrompt(): boolean;
   markMergePromptDone(): void;
-  previewGuestMerge(includeSample: boolean): MergePreview | null;
-  mergeGuest(opts: { includeSample: boolean }): Promise<MergeResult>;
+  previewGuestMerge(): MergePreview | null;
+  mergeGuest(): Promise<MergeResult>;
 }
 export function isSyncCapable(s: TrackerService): s is TrackerService & SyncCapable {
   return typeof (s as Partial<SyncCapable>).attachAccount === 'function';
@@ -61,20 +62,14 @@ export interface SyncedOptions { now?: () => Date; keyPrefix?: string; autoSync?
 
 const SYNC_DEBOUNCE_MS = 1500;
 
-function emptyAccountDb(now: Date, email: string): DemoDb {
-  const seed = buildSeedDb(now);
+function emptyAccountDb(email: string): DemoDb {
+  const empty = buildEmptyDb();
   return {
-    ...seed,
-    meals: [], transactions: [], weighIns: [], sessions: [], messages: [], calendarEvents: [], processed: {},
+    ...empty,
     settings: {
-      ...DEMO_SETTINGS,
+      ...DEFAULT_SETTINGS,
       displayName: email.split('@')[0] ?? 'You',
       email,
-      openingBalance: 0,
-      dailyCalorieTarget: null,
-      dailyProteinTargetG: null,
-      monthlyBudget: null,
-      targetWeightKg: null,
     },
   };
 }
@@ -97,6 +92,7 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
     super(opts.now, `${opts.keyPrefix ?? ''}${GUEST_STORAGE_KEY}`);
     this.prefix = opts.keyPrefix ?? '';
     this.autoSync = opts.autoSync ?? true;
+    this.cleanupLegacyRecords();
   }
 
   /** `connected` only while a signed-in account is attached. A configured-but-signed-out app is still local. */
@@ -104,7 +100,7 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
     return this.acct ? 'connected' : 'demo';
   }
   protected loadFresh(): DemoDb {
-    return this.acct ? emptyAccountDb(this.now(), this.acct.email) : super.loadFresh();
+    return this.acct ? emptyAccountDb(this.acct.email) : super.loadFresh();
   }
   protected persistenceLabel(): 'demo' | 'cloud' {
     return this.acct ? 'cloud' : 'demo';
@@ -154,6 +150,7 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
     }
     this.snap = snapshotEntities(this.db);
     engine.reconcile(this.snap);
+    this.cleanupLegacyRecords();
     this.lastError = null;
     this.offline = false;
     this.emit(true);
@@ -233,7 +230,10 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
         let changed = false;
         try {
           const r = await acct.engine.sync();
-          changed = r.pulled > 0;
+          const cleaned = this.cleanupLegacyRecords();
+          changed = r.pulled > 0 || cleaned > 0;
+          // If a legacy cloud record was removed locally, upload its tombstone now.
+          if (cleaned > 0) this.again = true;
           this.offline = false;
           this.lastError = r.failed > 0 ? `${r.failed} item${r.failed === 1 ? '' : 's'} couldn't be saved to your account. They are still on this device.` : null;
         } catch (e) {
@@ -297,6 +297,30 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
     this.emit(true);
   }
 
+  /* -------------------------- legacy data safety cleanup -------------------------- */
+
+  /**
+   * Removes only the exact records generated by buildSeedDb(). A raw safety
+   * copy must be written first; otherwise the active dataset is left untouched.
+   * In an account partition persist() records ordinary sync tombstones.
+   */
+  private cleanupLegacyRecords(): number {
+    const cleaned = withoutLegacySeedRecords(this.db);
+    if (!cleaned.removed) return 0;
+    const previous = this.db;
+    try {
+      const raw = localStorage.getItem(this.storageKey) ?? this.lastGood;
+      localStorage.setItem(`${this.storageKey}.legacy-backup.${Date.now()}`, raw);
+      this.db = cleaned.db;
+      this.persist();
+      return cleaned.removed;
+    } catch {
+      this.db = previous;
+      this.notice = "Older built-in records were left unchanged because a safety copy couldn't be saved on this device.";
+      return 0;
+    }
+  }
+
   /* ------------------------------ guest → account merge ------------------------------ */
 
   private readGuest(): { db: DemoDb; raw: string } | null {
@@ -320,21 +344,21 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
     this.acct.engine.state.mergePromptDone = true;
     this.saveState(this.acct.id, this.acct.engine.state);
   }
-  private mergeOpts(includeSample: boolean) {
+  private mergeOpts() {
     const m = this.acct!.engine.state.meta;
-    return { includeSample, accountHasCloudSettings: (m[keyOf('settings', 'settings')]?.rev ?? 0) > 0, accountHasCloudPrefs: (m[keyOf('calendarPrefs', 'prefs')]?.rev ?? 0) > 0 };
+    return { accountHasCloudSettings: (m[keyOf('settings', 'settings')]?.rev ?? 0) > 0, accountHasCloudPrefs: (m[keyOf('calendarPrefs', 'prefs')]?.rev ?? 0) > 0 };
   }
-  previewGuestMerge(includeSample: boolean): MergePreview | null {
+  previewGuestMerge(): MergePreview | null {
     if (!this.acct) return null;
     const g = this.readGuest();
-    return g ? previewMerge(g.db, this.db, this.mergeOpts(includeSample)) : null;
+    return g ? previewMerge(g.db, this.db, this.mergeOpts()) : null;
   }
 
-  async mergeGuest(opts: { includeSample: boolean }): Promise<MergeResult> {
+  async mergeGuest(): Promise<MergeResult> {
     const a = this.acct;
     if (!a) throw new TrackerError('UNAUTHENTICATED', 'Sign in to merge your on-device records into your account.', { retryable: false });
     const g = this.readGuest();
-    if (!g) return { added: 0, identical: 0, differing: 0, skippedSample: 0, confirmed: true, backupKey: '' };
+    if (!g) return { added: 0, identical: 0, differing: 0, skippedLegacy: 0, confirmed: true, backupKey: '' };
     // 1. Safety copy first. If it can't be written, nothing is merged.
     const backupKey = `${this.prefix}pt.merge.backup.${a.id}.${Date.now()}`;
     try {
@@ -343,7 +367,7 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
       throw new TrackerError('STORAGE_FAILED', "Couldn't make a safety copy of your on-device records, so nothing was merged. Free up some space and try again.", { retryable: true });
     }
     // 2. Add what the account lacks, as ordinary tracked changes. The guest copy itself is never modified.
-    const plan = planMerge(g.db, this.db, this.mergeOpts(opts.includeSample));
+    const plan = planMerge(g.db, this.db, this.mergeOpts());
     for (const x of plan.add) applyEntity(this.db, x.kind, x.id, x.data);
     this.persist(); // all-or-nothing; rolls back and throws if the device refuses
     for (const d of plan.differing) a.engine.recordConflict(d.kind, d.id, 'cloud', 'same id on this device and in your account, with different content', d.guestJson);
@@ -353,6 +377,6 @@ export class SyncedTrackerService extends MockTrackerService implements SyncCapa
     // 3. Upload, then confirm.
     await this.syncNow();
     const confirmed = a.engine.pending() === 0 && !this.lastError && !this.offline;
-    return { added: plan.add.length, identical: plan.identical, differing: plan.differing.length, skippedSample: plan.skippedSample, confirmed, backupKey };
+    return { added: plan.add.length, identical: plan.identical, differing: plan.differing.length, skippedLegacy: plan.skippedLegacy, confirmed, backupKey };
   }
 }

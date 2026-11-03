@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
-import { Download, Monitor, Moon, RotateCcw, Sun, Trash2, Upload } from 'lucide-react';
+import { Download, Monitor, Moon, Sun, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/tracker/components/ui/Button';
 import { Card, CardBody, CardHeader } from '@/tracker/components/ui/Card';
 import { ConfirmDialog } from '@/tracker/components/ui/Dialog';
@@ -122,7 +122,7 @@ export function ProfileSection({ settings }: { settings: UserSettings }) {
           )}
         </Field>
       </div>
-      <Field label="Account" hint="Sign-in isn't set up yet, so this is a local demo account. Real accounts will use Supabase Auth.">
+      <Field label="Account" hint="Your account email appears here after sign-in. Without an account, records stay only on this device.">
         {({ id, describedBy }) => <Input id={id} value={settings.email} readOnly aria-describedby={describedBy} />}
       </Field>
     </SettingsCard>
@@ -241,11 +241,10 @@ export function AppearanceSection() {
 export function DataSection() {
   const t = useTracker();
   const { toast } = useToast();
-  const [busy, setBusy] = useState<'json' | 'csv' | 'reset' | 'restore' | 'erase' | null>(null);
-  const [confirm, setConfirm] = useState<'reset' | 'restore' | 'erase' | null>(null);
+  const [busy, setBusy] = useState<'json' | 'csv' | 'restore' | 'erase' | null>(null);
+  const [confirm, setConfirm] = useState<'restore' | 'erase' | null>(null);
   const [pending, setPending] = useState<ExportBundle | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const canReset = typeof t.service.resetDemoData === 'function' && t.service.mode === 'demo';
   const where = t.service.mode === 'connected' ? 'in your account and on this device' : isNative() ? 'on this device' : 'in this browser';
 
   const run = async (kind: 'json' | 'csv') => {
@@ -314,19 +313,6 @@ export function DataSection() {
     }
   };
 
-  const reset = async () => {
-    setBusy('reset');
-    try {
-      await t.resetDemoData();
-      toast({ title: 'Demo data reset', description: 'Sample records were restored.', tone: 'success' });
-      setConfirm(null);
-    } catch (e) {
-      toast({ title: "Couldn't reset", description: toTrackerError(e).message, tone: 'error' });
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const closeIfIdle = () => {
     if (busy) return;
     setConfirm(null);
@@ -355,16 +341,6 @@ export function DataSection() {
         <p className="text-[13px] text-ink-3">
           Your records live only {where}. Uninstalling the app or clearing its data deletes them, so export a backup from time to time and keep the file somewhere safe. Restoring a backup restores meals, transactions, weigh-ins and settings; chats and your AI key are not included.
         </p>
-        {canReset && (
-          <div className="rounded-lg border border-line p-3.5">
-            <p className="text-sm font-medium text-ink">Reset demo data</p>
-            <p className="mt-0.5 text-[13px] text-ink-3">Replaces everything you&apos;ve added {where}, including chats, with fresh sample records.</p>
-            <Button variant="secondary" className="mt-3" onClick={() => setConfirm('reset')}>
-              <RotateCcw className="size-4" aria-hidden />
-              Reset demo data
-            </Button>
-          </div>
-        )}
         <div className="rounded-lg border border-line p-3.5">
           <p className="text-sm font-medium text-ink">Delete all my records</p>
           <p className="mt-0.5 text-[13px] text-ink-3">Starts you from an empty tracker: removes every meal, transaction, weigh-in and conversation {where}. Your settings stay.</p>
@@ -374,7 +350,6 @@ export function DataSection() {
           </Button>
         </div>
       </CardBody>
-      <ConfirmDialog open={confirm === 'reset'} title="Reset demo data?" description={`Every meal, transaction, weigh-in and conversation ${where} will be replaced with the sample data. This can't be undone.`} confirmLabel="Reset" loading={busy === 'reset'} onConfirm={reset} onClose={closeIfIdle} />
       <ConfirmDialog
         open={confirm === 'restore' && pending !== null}
         title="Restore this backup?"

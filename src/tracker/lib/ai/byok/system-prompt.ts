@@ -1,5 +1,7 @@
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, type UserSettings } from '@/tracker/types/domain';
-import { NOTES_MAX } from './config';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, type UserSettings } from '../../../types/domain';
+
+/** Shared with the server-owned default-AI prompt. */
+export const NOTES_MAX = 800;
 
 /** "+05:30" style offset for a timezone at a given instant. */
 export function utcOffsetFor(tz: string, at: Date): string {
