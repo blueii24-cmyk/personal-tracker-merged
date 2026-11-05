@@ -35,6 +35,7 @@ describe('AI relay', () => {
     const [url, init] = upstream.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(`${target}/models`);
     expect(init.redirect).toBe('manual');
+    expect(init.cache).toBe('no-store');
     expect(Object.keys(init.headers as Record<string, string>).sort()).toEqual(['accept', 'authorization']);
   });
 
@@ -88,6 +89,20 @@ describe('AI transport', () => {
     expect(result.viaRelay).toBe(true);
     expect(fetchImpl).toHaveBeenCalledWith('/api/ai-proxy', expect.objectContaining({
       headers: expect.objectContaining({ [PROXY_TARGET_HEADER]: url }),
+      credentials: 'same-origin',
+      cache: 'no-store',
+    }));
+  });
+
+  it('does not send browser credentials to a direct provider', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}'));
+    await aiFetch('https://api.openai.com/v1/models', {
+      method: 'GET',
+      headers: { authorization: 'Bearer test-key' },
+      signal: signal(),
+    }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.openai.com/v1/models', expect.objectContaining({
+      credentials: 'omit',
     }));
   });
 

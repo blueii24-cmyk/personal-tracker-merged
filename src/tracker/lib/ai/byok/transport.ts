@@ -98,7 +98,10 @@ export async function aiFetch(
       headers: { ...init.headers, [PROXY_TARGET_HEADER]: url },
       ...(init.body === undefined ? {} : { body: init.body }),
       signal: init.signal,
-      credentials: 'omit',
+      // This URL is same-origin. Keep the Vercel session cookie (when deployment
+      // protection is enabled) without sending cookies to the AI provider.
+      credentials: 'same-origin',
+      cache: 'no-store',
       referrerPolicy: 'no-referrer',
     }),
     viaRelay: true,

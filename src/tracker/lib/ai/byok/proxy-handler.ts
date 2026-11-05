@@ -51,6 +51,7 @@ export function createProxyHandler(fetchImpl: typeof fetch = fetch) {
         headers,
         ...(body === undefined ? {} : { body }),
         redirect: 'manual',
+        cache: 'no-store',
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
       return new Response(await upstream.text(), {
