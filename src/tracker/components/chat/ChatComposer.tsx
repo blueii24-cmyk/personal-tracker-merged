@@ -27,6 +27,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(function ChatC
     const t = el.current;
     if (!t) return;
     t.style.height = 'auto';
+    // CSS also caps the height relative to the resized viewport in landscape/with the IME open.
     t.style.height = `${Math.min(t.scrollHeight, 200)}px`;
   }, []);
   useEffect(resize, [value, resize]);
@@ -76,7 +77,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(function ChatC
           autoFocus={autoFocus}
           enterKeyHint="send"
           placeholder="Tell me what you ate, spent or weigh, or ask a question…"
-          className="max-h-[200px] min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 leading-6 text-ink outline-none placeholder:text-ink-3"
+          className="max-h-[min(200px,25dvh)] min-h-10 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2.5 py-2 leading-6 text-ink outline-none placeholder:text-ink-3"
         />
         {sending ? (
           <button type="button" onClick={onStop} aria-label="Stop generating" className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-on-primary transition-opacity hover:opacity-90">

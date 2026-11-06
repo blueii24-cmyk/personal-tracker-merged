@@ -240,9 +240,9 @@ export default function CalendarPage() {
         }
       />
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <Card>
-          <CardBody className="space-y-4">
+      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <Card className="min-w-0">
+          <CardBody className="space-y-4 px-3 min-[375px]:px-5 sm:px-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1">
                 <Button size="icon-sm" variant="ghost" aria-label="Previous month" onClick={() => go(addMonths(activeMonth, -1))}><ChevronLeft className="size-5" aria-hidden /></Button>
@@ -257,7 +257,7 @@ export default function CalendarPage() {
                 <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-ink-2" aria-hidden>
                   {weekdayOrder(prefs.weekStart).map((w) => <div key={w} className="py-1">{WEEKDAY_SHORT[w]}</div>)}
                 </div>
-                <div role="grid" aria-label={formatMonthLabel(activeMonth)} className="grid grid-cols-7 gap-1">
+                <div role="grid" aria-label={formatMonthLabel(activeMonth)} className="grid grid-cols-7 gap-0.5 sm:gap-1">
                   {grid.flat().map((d) => {
                     const info = days.get(d);
                     const inMonth = monthKeyOf(d) === activeMonth;
@@ -274,7 +274,7 @@ export default function CalendarPage() {
                         aria-current={isToday ? 'date' : undefined}
                         onClick={() => pick(d)}
                         onDoubleClick={() => { pick(d); openNew(); }}
-                        className={cn('flex min-h-14 flex-col items-center gap-1 rounded-2xl border-2 px-1 py-1.5 text-sm transition-colors sm:min-h-24 sm:items-stretch sm:px-2', isSel ? 'bg-primary-container text-on-primary-container' : 'hover:bg-hover', inMonth ? 'text-ink' : 'text-ink-3')}
+                        className={cn('flex min-h-14 min-w-0 flex-col items-center gap-1 rounded-2xl border-2 px-0 py-1.5 text-sm transition-colors sm:min-h-24 sm:items-stretch sm:px-2', isSel ? 'bg-primary-container text-on-primary-container' : 'hover:bg-hover', inMonth ? 'text-ink' : 'text-ink-3')}
                         style={{ borderColor: isToday ? accent : 'transparent' }}
                       >
                         <span className={cn('tnum text-sm sm:text-[13px]', isToday && 'font-semibold')}>{Number(d.slice(8))}</span>
@@ -282,11 +282,11 @@ export default function CalendarPage() {
                           {info?.events.slice(0, 2).map((e) => <span key={e.id} className="truncate rounded-md px-1 text-[11px] leading-4" style={{ backgroundColor: `color-mix(in srgb, ${e.origin === 'google' ? 'var(--protein-mark)' : accent} 22%, transparent)` }}>{e.title}</span>)}
                           {info && info.events.length > 2 && <span className="px-1 text-[11px] text-ink-2">+{info.events.length - 2} more</span>}
                         </span>
-                        <span className="flex h-2 items-center justify-center gap-1 sm:justify-start" aria-hidden>
-                          {info?.events.length ? <span className="size-1.5 rounded-full sm:hidden" style={{ backgroundColor: accent }} /> : null}
-                          {info?.meals ? <span className="size-1.5 rounded-full bg-fuel-mark" /> : null}
-                          {info?.spend ? <span className="size-1.5 rounded-full bg-money-mark" /> : null}
-                          {info?.weight ? <span className="size-1.5 rounded-full bg-weight-mark" /> : null}
+                        <span className="flex h-2 items-center justify-center gap-0.5 sm:justify-start sm:gap-1" aria-hidden>
+                          {info?.events.length ? <span className="size-1 rounded-full sm:hidden" style={{ backgroundColor: accent }} /> : null}
+                          {info?.meals ? <span className="size-1 rounded-full bg-fuel-mark sm:size-1.5" /> : null}
+                          {info?.spend ? <span className="size-1 rounded-full bg-money-mark sm:size-1.5" /> : null}
+                          {info?.weight ? <span className="size-1 rounded-full bg-weight-mark sm:size-1.5" /> : null}
                         </span>
                       </button>
                     );

@@ -30,7 +30,7 @@ export function AppShell() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <MobileTopBar />
-        <main id="main" tabIndex={-1} className={cn('scroll-thin min-h-0 flex-1 outline-none', isChat ? 'overflow-hidden' : 'overflow-y-auto pb-24 md:pb-8')}>
+        <main id="main" tabIndex={-1} className={cn('scroll-thin min-h-0 flex-1 outline-none', isChat ? 'overflow-hidden' : 'overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-8')}>
           <ErrorBoundary key={pathname}>
             <Suspense fallback={<PageFallback />}>
               <Outlet />

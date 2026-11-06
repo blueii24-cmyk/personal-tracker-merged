@@ -12,6 +12,7 @@ interface ChatApi {
   loadingHistory: boolean;
   historyError: string | null;
   send: (text: string) => void;
+  edit: (messageId: string, text: string) => boolean;
   retry: (messageId: string) => void;
   stop: () => void;
   newChat: () => void;
@@ -71,7 +72,7 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
       setSending(true);
       patchMessage(userMessage.id, { status: 'sending', error: undefined });
       try {
-        const request: AiChatRequest = { sessionId: userMessage.sessionId ?? undefined, clientMessageId: userMessage.clientMessageId!, message: userMessage.content };
+        const request: AiChatRequest = { sessionId: userMessage.sessionId ?? undefined, clientMessageId: userMessage.clientMessageId!, message: userMessage.content, editOfMessageId: userMessage.editOfMessageId };
         const reply = await (sender ?? ((r, o) => service.sendChatMessage(r, o)))(request, { signal: ctl.signal });
         updateActive(reply.sessionId);
         setMessages((ms) => [
@@ -120,6 +121,19 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
     },
     [dispatch],
   );
+
+  const edit = useCallback((messageId: string, text: string): boolean => {
+    const content = text.trim();
+    const original = messages.find((m) => m.id === messageId && m.role === 'user' && m.status === 'complete');
+    if (!original || !activeRef.current || original.sessionId !== activeRef.current || !content || content.length > 4000 || content === original.content || controller.current) return false;
+    const msg: ChatMessage = {
+      id: newId(), sessionId: activeRef.current, role: 'user', content,
+      createdAt: new Date().toISOString(), status: 'sending', clientMessageId: newId(), editOfMessageId: original.id,
+    };
+    setMessages((ms) => [...ms, msg]);
+    void dispatch(msg);
+    return true;
+  }, [messages, dispatch]);
 
   const retry = useCallback(
     (messageId: string) => {
@@ -170,8 +184,8 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
   );
 
   const value = useMemo<ChatApi>(
-    () => ({ sessions, activeSessionId, messages, sending, loadingHistory, historyError, send, retry, stop, newChat, openSession, deleteSession }),
-    [sessions, activeSessionId, messages, sending, loadingHistory, historyError, send, retry, stop, newChat, openSession, deleteSession],
+    () => ({ sessions, activeSessionId, messages, sending, loadingHistory, historyError, send, edit, retry, stop, newChat, openSession, deleteSession }),
+    [sessions, activeSessionId, messages, sending, loadingHistory, historyError, send, edit, retry, stop, newChat, openSession, deleteSession],
   );
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

@@ -46,6 +46,7 @@ export interface ChatExchange {
   sessionId?: string;
   clientMessageId: string;
   userMessage: string;
+  editOfMessageId?: string;
   assistantMessage: string;
   actions: AiChatResponse['actions'];
   dashboardInvalidation: AiChatResponse['dashboardInvalidation'];

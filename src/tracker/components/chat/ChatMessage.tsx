@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, RotateCw } from 'lucide-react';
+import { AlertCircle, Pencil, RotateCw } from 'lucide-react';
 import { Button } from '@/tracker/components/ui/Button';
 import { LogoMark } from '@/tracker/components/layout/Brand';
 import { formatTime } from '@/tracker/lib/formatting/dates';
@@ -13,17 +14,36 @@ interface Props {
   timezone: string;
   busy: boolean;
   onRetry: (id: string) => void;
+  editing: boolean;
+  savedActions: boolean;
+  onEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (id: string, text: string) => boolean;
 }
 
-export function ChatMessage({ message, timezone, busy, onRetry }: Props) {
+export function ChatMessage({ message, timezone, busy, onRetry, editing, savedActions, onEdit, onCancelEdit, onSaveEdit }: Props) {
+  const [draft, setDraft] = useState(message.content);
   const time = <time dateTime={message.createdAt} className="msg-time text-[11px] text-ink-3">{formatTime(message.createdAt, timezone)}</time>;
 
   if (message.role === 'user') {
     return (
       <div className="group flex flex-col items-end gap-1">
-        <div className={cn('max-w-[88%] rounded-[22px] rounded-br-md bg-primary-container px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-on-primary-container sm:max-w-[75%]', message.status === 'sending' && 'opacity-70')}>
-          {message.content}
-        </div>
+        {message.editOfMessageId && <span className="text-xs text-ink-3">Correction to an earlier message</span>}
+        {editing ? (
+          <form className="w-full max-w-[88%] rounded-[22px] bg-primary-container p-3 text-on-primary-container sm:max-w-[75%]" onSubmit={(e) => { e.preventDefault(); if (onSaveEdit(message.id, draft)) onCancelEdit(); }}>
+            <label htmlFor={`edit-${message.id}`} className="sr-only">Edit message</label>
+            <textarea id={`edit-${message.id}`} value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 4000))} rows={3} className="w-full resize-y rounded-xl bg-surface p-2 text-[15px] text-ink outline-primary" />
+            <p className="mt-1 text-xs">{savedActions ? 'This message already saved records. ' : ''}The original and later messages stay in history. This correction will not change or undo any saved records; review records before making a separate change.</p>
+            <div className="mt-2 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={onCancelEdit}>Cancel</Button>
+              <Button size="sm" variant="secondary" type="submit" disabled={busy || !draft.trim() || draft.trim() === message.content}>Save edit</Button>
+            </div>
+          </form>
+        ) : (
+          <div className={cn('max-w-[88%] rounded-[22px] rounded-br-md bg-primary-container px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words text-on-primary-container sm:max-w-[75%]', message.status === 'sending' && 'opacity-70')}>
+            {message.content}
+          </div>
+        )}
         {message.status === 'error' && message.error ? (
           <div role="alert" className="flex max-w-[88%] flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[13px] text-danger sm:max-w-[75%]">
             <AlertCircle className="size-3.5 shrink-0" aria-hidden />
@@ -41,7 +61,10 @@ export function ChatMessage({ message, timezone, busy, onRetry }: Props) {
             )}
           </div>
         ) : (
-          time
+          <div className="flex items-center gap-2">
+            {time}
+            {message.status === 'complete' && !editing && <button type="button" disabled={busy} onClick={() => { setDraft(message.content); onEdit(message.id); }} className="inline-flex min-h-9 items-center gap-1 px-2 text-xs text-ink-3 hover:text-ink disabled:opacity-50" aria-label="Edit message"><Pencil className="size-3" aria-hidden />Edit</button>}
+          </div>
         )}
       </div>
     );

@@ -5,6 +5,8 @@ export type AiChatRequest = {
   /** Generate once per submitted UI message and reuse for retries. */
   clientMessageId: string;
   message: string;
+  /** A correction to an existing user message. Regeneration must never mutate records. */
+  editOfMessageId?: string;
   providerId?: AiProviderId;
   modelId?: string;
 };
