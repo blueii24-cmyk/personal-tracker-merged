@@ -26,12 +26,12 @@ Use Supabase dashboard **Edge Functions → Secrets**, or run these commands loc
 npx supabase@2.122.0 secrets set \
   AI_PROVIDER=openai-compatible \
   AI_BASE_URL=https://openrouter.ai/api/v1 \
-  AI_MODEL='<SERVER_CHOSEN_TOOL_CAPABLE_MODEL>' \
+  AI_MODEL='nvidia/nemotron-3.5-lightning:free' \
   AI_API_KEY='<SERVER_ONLY_PROVIDER_KEY>' \
   APP_ALLOWED_ORIGINS='https://<PRIMARY_WEB_ORIGIN>'
 ```
 
-`AI_BASE_URL` must be HTTPS without embedded credentials/query/fragment. OpenRouter's default is shown; another operator-controlled OpenAI-compatible endpoint requires a deliberate configuration change and compatibility testing. The model must support chat completions and function/tools.
+`AI_BASE_URL` must be HTTPS without embedded credentials/query/fragment. OpenRouter's default is shown; another operator-controlled OpenAI-compatible endpoint requires a deliberate configuration change and compatibility testing. The example selects OpenRouter's free Nemotron 3.5 Lightning model (`nvidia/nemotron-3.5-lightning:free`), which lists tool calling; availability and rate limits can change. Verify chat and tool compatibility before relying on it. A different model must support chat completions and function/tools.
 
 Optional quota overrides (defaults shown):
 
