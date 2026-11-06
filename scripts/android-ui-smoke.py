@@ -134,10 +134,13 @@ try:
     landscape_open = bounds(wait_for(edit_field, 'landscape input with keyboard'))
     snapshot('06-landscape-ime-open')
     assert landscape_open[3] < landscape_before[3], f'Landscape composer did not resize: {landscape_before}, {landscape_open}'
-    print('PASS: native title, no autofocus, portrait IME/composer, send, dismissal and landscape IME')
-except Exception:
+    print(f'::notice::Android UI PASS: native title, no autofocus, IME, send and dismissal. Portrait input closed={before}, open={opened}, restored={restored}; landscape closed={landscape_before}, open={landscape_open}', flush=True)
+except Exception as error:
+    print(f'::error::Android UI smoke failed: {type(error).__name__}: {error}', flush=True)
     try:
-        snapshot('failure')
-    except Exception:
-        pass
+        root = snapshot('failure')
+        nodes = [f"{n.get('class', '')} text={n.get('text', '')!r} desc={n.get('content-desc', '')!r} bounds={n.get('bounds', '')}" for n in root.iter('node') if n.get('package') == PKG]
+        print('::notice::Android UI nodes: ' + ' | '.join(nodes)[:12000], flush=True)
+    except Exception as snapshot_error:
+        print(f'::notice::Could not capture failure UI: {snapshot_error}', flush=True)
     raise
