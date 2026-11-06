@@ -106,7 +106,9 @@ try:
     assert ime_visible(), 'IME did not open after tapping the input'
     field = wait_for(edit_field, 'chat input with keyboard')
     opened = bounds(field)
-    snapshot('03-chat-ime-open')
+    ime_root = snapshot('03-chat-ime-open')
+    keyboard_nodes = [f"{n.get('package')} {n.get('class')} {n.get('bounds')}" for n in ime_root.iter('node') if 'inputmethod' in n.get('package', '').lower()]
+    print('::notice::IME accessibility nodes: ' + (' | '.join(keyboard_nodes[:15]) or 'not exposed'), flush=True)
     assert opened[3] < before[3] - 50, f'Composer did not move above IME: closed={before}, open={opened}'
     adb('shell', 'input', 'text', 'hello')
     send = wait_for(lambda r: match(r, 'Send message'), 'send button')
