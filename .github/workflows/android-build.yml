@@ -188,7 +188,7 @@ jobs:
             echo 'Compiled Android activity manifest:'
             "$build_tools/aapt" dump xmltree "$package" AndroidManifest.xml | tee "$RUNNER_TEMP/android-manifest.txt"
             echo 'Compiled activity/launcher theme resources:'
-            "$build_tools/aapt" dump resources "$package" > "$RUNNER_TEMP/android-resources-all.txt"
+            "$build_tools/aapt" dump --values resources "$package" > "$RUNNER_TEMP/android-resources-all.txt"
             grep -E 'AppTheme|title_activity_main|app_name' "$RUNNER_TEMP/android-resources-all.txt" | tee "$RUNNER_TEMP/android-resources.txt"
             echo "::notice::Compiled APK manifest activity: $(grep -A12 'E: activity ' "$RUNNER_TEMP/android-manifest.txt" | head -13 | tr '\n' ' ')"
             echo "::notice::Compiled APK theme/label resources: $(tr '\n' ' ' < "$RUNNER_TEMP/android-resources.txt")"
