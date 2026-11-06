@@ -28,12 +28,12 @@ export function ChatMessage({ message, timezone, busy, onRetry, editing, savedAc
   if (message.role === 'user') {
     return (
       <div className="group flex flex-col items-end gap-1">
-        {message.editOfMessageId && <span className="text-xs text-ink-3">Correction to an earlier message</span>}
+        {message.editOfMessageId && <span className="text-xs text-ink-3">Edited message</span>}
         {editing ? (
           <form className="w-full max-w-[88%] rounded-[22px] bg-primary-container p-3 text-on-primary-container sm:max-w-[75%]" onSubmit={(e) => { e.preventDefault(); if (onSaveEdit(message.id, draft)) onCancelEdit(); }}>
             <label htmlFor={`edit-${message.id}`} className="sr-only">Edit message</label>
             <textarea id={`edit-${message.id}`} value={draft} onChange={(e) => setDraft(e.target.value.slice(0, 4000))} rows={3} className="w-full resize-y rounded-xl bg-surface p-2 text-[15px] text-ink outline-primary" />
-            <p className="mt-1 text-xs">{savedActions ? 'This message already saved records. ' : ''}The original and later messages stay in history. This correction will not change or undo any saved records; review records before making a separate change.</p>
+            <p className="mt-1 text-xs">{savedActions ? 'This message already saved records. ' : ''}Saving creates a revised conversation from this point; the original and later messages remain under Conversations. Regeneration will not change or undo records. Correct a record separately.</p>
             <div className="mt-2 flex justify-end gap-2">
               <Button size="sm" variant="ghost" onClick={onCancelEdit}>Cancel</Button>
               <Button size="sm" variant="secondary" type="submit" disabled={busy || !draft.trim() || draft.trim() === message.content}>Save edit</Button>
@@ -63,7 +63,7 @@ export function ChatMessage({ message, timezone, busy, onRetry, editing, savedAc
         ) : (
           <div className="flex items-center gap-2">
             {time}
-            {message.status === 'complete' && !editing && <button type="button" disabled={busy} onClick={() => { setDraft(message.content); onEdit(message.id); }} className="inline-flex min-h-9 items-center gap-1 px-2 text-xs text-ink-3 hover:text-ink disabled:opacity-50" aria-label="Edit message"><Pencil className="size-3" aria-hidden />Edit</button>}
+            {message.status === 'complete' && !editing && <button type="button" disabled={busy} onClick={() => { setDraft(message.content); onEdit(message.id); }} className="inline-flex min-h-11 items-center gap-1.5 px-2 text-[13px] font-medium text-primary underline underline-offset-2 disabled:opacity-50" aria-label="Edit message"><Pencil className="size-3" aria-hidden />Edit</button>}
           </div>
         )}
       </div>
@@ -77,6 +77,12 @@ export function ChatMessage({ message, timezone, busy, onRetry, editing, savedAc
         <div className={cn('text-[15px] leading-relaxed text-ink', message.status === 'streaming' && 'caret')}>
           <RichText text={message.content} />
         </div>
+        {message.preservedActions && message.preservedActions.length > 0 && (
+          <section aria-label="Saved by the original message">
+            <p className="mt-3 text-xs text-ink-2">Saved by the original message — unchanged</p>
+            {message.preservedActions.map((a, i) => <ActionConfirmationCard key={`${a.toolCallId}-${i}`} action={a} />)}
+          </section>
+        )}
         {message.actions?.map((a) => (
           <ActionConfirmationCard key={a.toolCallId} action={a} />
         ))}

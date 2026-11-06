@@ -190,7 +190,7 @@ export default function ChatPage() {
 
       <div className="shrink-0 bg-canvas safe-bottom px-3 pt-2 sm:px-6">
         <div className="mx-auto w-full max-w-3xl">
-          <ChatComposer ref={composer} sending={chat.sending} onSend={chat.send} onStop={chat.stop} autoFocus />
+          <ChatComposer ref={composer} sending={chat.sending} onSend={chat.send} onStop={chat.stop} />
           <p className="mt-1 mb-0.5 text-center text-[11px] text-ink-3 [@media(max-height:420px)]:hidden">
             {ai.active
               ? `Answered by ${ai.config.model} with your own key. It only handles budgeting and bulking. Nutrition figures are estimates. Records stay in this browser.`

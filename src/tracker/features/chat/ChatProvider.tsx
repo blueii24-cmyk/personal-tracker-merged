@@ -74,8 +74,19 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
       try {
         const request: AiChatRequest = { sessionId: userMessage.sessionId ?? undefined, clientMessageId: userMessage.clientMessageId!, message: userMessage.content, editOfMessageId: userMessage.editOfMessageId };
         const reply = await (sender ?? ((r, o) => service.sendChatMessage(r, o)))(request, { signal: ctl.signal });
-        updateActive(reply.sessionId);
-        setMessages((ms) => [
+        // Refresh saved records and conversation list even if the user navigated while sending.
+        if (reply.dashboardInvalidation.length > 0) await onRecordsChanged().catch(() => undefined);
+        void fetchSessions().then((nextSessions) => { if (nextSessions) setSessions(nextSessions); });
+        // Navigation while a request is in flight must not replace a different conversation.
+        if (activeRef.current !== userMessage.sessionId) return;
+        if (userMessage.editOfMessageId) {
+          const revised = await service.getChatHistory(reply.sessionId);
+          if (activeRef.current !== userMessage.sessionId) return;
+          updateActive(reply.sessionId);
+          setMessages(revised);
+        } else {
+          updateActive(reply.sessionId);
+          setMessages((ms) => [
           ...ms.map((m) => (m.id === userMessage.id ? { ...m, id: reply.userMessageId, sessionId: reply.sessionId, status: 'complete' as const, error: undefined } : m)),
           {
             id: reply.assistantMessageId,
@@ -86,15 +97,14 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
             status: 'complete' as const,
             actions: reply.actions,
           },
-        ]);
-        if (reply.dashboardInvalidation.length > 0) await onRecordsChanged().catch(() => undefined);
-        void fetchSessions().then((nextSessions) => { if (nextSessions) setSessions(nextSessions); });
+          ]);
+        }
       } catch (e) {
         const err = toTrackerError(e);
         const info: ChatErrorInfo = isAbortError(e)
           ? { code: 'ABORTED', message: 'You stopped this request. Nothing was saved.', retryable: true }
           : { code: err.code, message: err.message, retryable: err.retryable };
-        patchMessage(userMessage.id, { status: 'error', error: info });
+        if (activeRef.current === userMessage.sessionId) patchMessage(userMessage.id, { status: 'error', error: info });
       } finally {
         if (controller.current === ctl) controller.current = null;
         setSending(false);
@@ -127,10 +137,13 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
     const original = messages.find((m) => m.id === messageId && m.role === 'user' && m.status === 'complete');
     if (!original || !activeRef.current || original.sessionId !== activeRef.current || !content || content.length > 4000 || content === original.content || controller.current) return false;
     const msg: ChatMessage = {
-      id: newId(), sessionId: activeRef.current, role: 'user', content,
-      createdAt: new Date().toISOString(), status: 'sending', clientMessageId: newId(), editOfMessageId: original.id,
+      ...original, content, status: 'sending', clientMessageId: newId(), editOfMessageId: original.id,
     };
-    setMessages((ms) => [...ms, msg]);
+    // The untouched original conversation remains recoverable; show the new branch from this point.
+    setMessages((ms) => {
+      const index = ms.findIndex((m) => m.id === original.id);
+      return index < 0 ? ms : [...ms.slice(0, index), msg];
+    });
     void dispatch(msg);
     return true;
   }, [messages, dispatch]);

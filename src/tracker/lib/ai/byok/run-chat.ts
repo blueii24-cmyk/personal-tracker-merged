@@ -32,7 +32,7 @@ function historyToCanonical(history: ChatMessage[]): CanonicalMessage[] {
     .slice(-HISTORY_MESSAGES)
     .map((m): CanonicalMessage => {
       if (m.role === 'user') return { role: 'user', content: m.editOfMessageId ? `[Correction to an earlier message; no records were changed] ${m.content}` : m.content };
-      const saved = (m.actions ?? []).filter((a) => a.status === 'succeeded' && a.recordIds?.length).map((a) => a.summary);
+      const saved = [...(m.preservedActions ?? []), ...(m.actions ?? [])].filter((a) => a.status === 'succeeded' && a.recordIds?.length).map((a) => a.summary);
       return { role: 'assistant', content: saved.length ? `${m.content}\n(Saved: ${saved.join('; ')})` : m.content };
     });
 }
@@ -75,9 +75,9 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   const edit = input.editOfMessageId ? editContext(history, input.editOfMessageId) : null;
   const system = buildSystemPrompt(settings, clock(), config.notes);
   const prompt = edit
-    ? `Correction to an earlier message (the original and all later turns remain in the conversation). Original: ${JSON.stringify(edit.original.content)}\nCorrected message: ${message}\n${edit.savedActions ? 'The original turn already saved records; do not repeat or undo them.' : 'Earlier turns and records are unchanged.'} This correction is read-only: do not claim to save or change records.`
+    ? `The user edited an earlier message. Original: ${JSON.stringify(edit.original.content)}\nEdited message: ${message}\n${edit.savedActions ? 'The original turn already saved records; do not repeat or undo them.' : 'Earlier saved records are unchanged.'} Regeneration is read-only: do not claim to save or change records.`
     : message;
-  const messages: CanonicalMessage[] = [...historyToCanonical(history), { role: 'user', content: prompt }];
+  const messages: CanonicalMessage[] = [...historyToCanonical(edit ? edit.prefix : history), { role: 'user', content: prompt }];
 
   const done: Array<AiActionResult & { name: string }> = [];
   const invalidation = new Set<Invalidation>();
@@ -88,6 +88,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   let responseModel = config.model.trim();
   let interrupted: string | null = null;
   let editWriteBlocked = false;
+  let updateDeclined = false;
 
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -121,6 +122,9 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
           calls++;
           editWriteBlocked = true;
           outcome = { status: 'rejected', summary: 'Corrections cannot change records', modelContent: { ok: false, error: 'This correction is read-only. No record was changed. Ask the user to review their records before a separate change.' }, write: false, invalidation: [] };
+        } else if (updateDeclined && ['update_transaction', 'update_meal', 'update_weight'].includes(call.name)) {
+          calls++;
+          outcome = { status: 'rejected', summary: 'Update not confirmed', modelContent: { ok: false, error: 'The user declined an update; do not ask again in this message.' }, write: false, invalidation: [] };
         } else if (calls >= MAX_TOOL_CALLS) {
           outcome = { status: 'rejected', summary: 'Too many tool calls in one message.', modelContent: { ok: false, error: 'Tool call limit reached. Reply to the user now.' }, write: false, invalidation: [] };
         } else if (isWriteTool(call.name) && writes >= MAX_WRITES) {
@@ -135,6 +139,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
           if (outcome.write) writes++;
           if (key && outcome.status === 'succeeded') seenWrites.set(key, outcome);
         }
+        if (outcome.summary.includes('update not confirmed')) updateDeclined = true;
         outcome.invalidation.forEach((i) => invalidation.add(i));
         done.push({
           toolCallId: call.id, toolName: call.name, name: call.name, status: outcome.status, summary: outcome.summary,
@@ -156,6 +161,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   let assistantMessage = finalText.trim();
   if (interrupted) assistantMessage = fallbackText(actions, interrupted);
   else if (editWriteBlocked) assistantMessage = 'I could not apply a record change while regenerating this correction.';
+  else if (updateDeclined) assistantMessage = 'The proposed record update was not confirmed.';
   else if (!assistantMessage) {
     // Nothing was saved and there is no answer to show: let the user retry rather than show an empty turn.
     if (!actions.some((x) => x.status === 'succeeded' && x.recordIds?.length)) {
@@ -166,6 +172,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
 
   // The model may still claim success after a rejected tool call; never display that claim as a receipt.
   if (editWriteBlocked) assistantMessage = 'I could not apply a record change while regenerating this correction.';
+  else if (updateDeclined) assistantMessage = 'The proposed record update was not confirmed.';
 
   return service.recordChatExchange({
     sessionId: input.sessionId,

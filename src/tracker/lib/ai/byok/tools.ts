@@ -15,6 +15,7 @@ import {
   type TransactionInput, type UserSettings, type WeighIn,
 } from '@/tracker/types/domain';
 import { INVALID_ARGS } from './http';
+import { confirmRecordUpdate } from '@/tracker/features/chat/confirm-record-update';
 
 export const WEIGHT_MIN_KG = 20;
 export const WEIGHT_MAX_KG = 300;
@@ -374,6 +375,9 @@ async function updateTransaction(a: z.infer<typeof SCHEMAS.update_transaction>, 
     type, category, amount: c.amount != null ? Math.round(c.amount * 100) / 100 : prev.amount, description: c.description ?? prev.description,
     merchant: c.merchant !== undefined && c.merchant !== null ? c.merchant.trim() || null : prev.merchant, notes: prev.notes, occurredAt: c.occurred_at ? new Date(c.occurred_at).toISOString() : prev.occurredAt,
   };
+  if (!confirmRecordUpdate('transaction', txToModel(prev, env.settings.timezone), txToModel({ ...prev, ...next }, env.settings.timezone))) {
+    return reject('Transaction update not confirmed. No record was changed.');
+  }
   const tx = await env.service.updateTransaction(prev.id, next);
   const amountChanged = tx.amount !== prev.amount;
   return {
@@ -399,6 +403,9 @@ async function updateMeal(a: z.infer<typeof SCHEMAS.update_meal>, env: ToolEnv):
     eatenAt: c.eaten_at ? new Date(c.eaten_at).toISOString() : prev.eatenAt,
     notes: c.notes != null ? c.notes.trim() || null : prev.notes,
   };
+  if (!confirmRecordUpdate('meal', mealToModel(prev, env.settings.timezone), { id: prev.id, meal_type: input.mealType, eaten_at: input.eatenAt, notes: input.notes, items: 'unchanged' })) {
+    return reject('Meal update not confirmed. No record was changed.');
+  }
   const meal = await env.service.updateMeal(prev.id, input);
   return {
     status: 'succeeded', summary: `Updated · ${cap(meal.mealType)}`,
@@ -414,9 +421,11 @@ async function updateWeight(a: z.infer<typeof SCHEMAS.update_weight>, env: ToolE
   const kg = c.weight_kg ?? prev.weightKg;
   const problem = (c.weight_kg != null ? weightProblem(kg) : null) ?? (c.recorded_at ? whenError(c.recorded_at, env.now) : null);
   if (problem) return reject(problem, {}, 'needs_clarification');
-  const w = await env.service.updateWeighIn(prev.id, {
-    weightKg: Math.round(kg * 100) / 100, recordedAt: c.recorded_at ? new Date(c.recorded_at).toISOString() : prev.recordedAt, notes: c.notes != null ? c.notes.trim() || null : prev.notes,
-  });
+  const next = { weightKg: Math.round(kg * 100) / 100, recordedAt: c.recorded_at ? new Date(c.recorded_at).toISOString() : prev.recordedAt, notes: c.notes != null ? c.notes.trim() || null : prev.notes };
+  if (!confirmRecordUpdate('weight entry', weighInToModel(prev, env.settings.timezone), weighInToModel({ ...prev, ...next }, env.settings.timezone))) {
+    return reject('Weight update not confirmed. No record was changed.');
+  }
+  const w = await env.service.updateWeighIn(prev.id, next);
   return {
     status: 'succeeded', summary: `Updated · ${formatWeight(w.weightKg, env.settings.weightUnit)}`,
     modelContent: { ok: true, before: weighInToModel(prev, env.settings.timezone), after: weighInToModel(w, env.settings.timezone) },

@@ -1,8 +1,9 @@
-import { Suspense } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Skeleton } from '@/tracker/components/ui/Skeleton';
 import { ErrorBoundary } from '@/tracker/app/ErrorBoundary';
 import { cn } from '@/tracker/lib/cn';
+import { isNative } from '@/tracker/lib/platform/native';
 import { MobileBottomNav, MobileTopBar } from './MobileNavigation';
 import { Sidebar } from './Sidebar';
 
@@ -22,8 +23,34 @@ function PageFallback() {
 export function AppShell() {
   const { pathname } = useLocation();
   const isChat = pathname.startsWith('/chat');
+  const shell = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = shell.current;
+    const viewport = window.visualViewport;
+    if (!isChat || !isNative() || !element || !viewport) return;
+    // SystemBars normally resizes the WebView. Only cap to the visual viewport if an older
+    // WebView instead resizes just that viewport; never subtract the keyboard height twice.
+    const update = () => {
+      const visualOnly = viewport.scale <= 1.01 && viewport.height < window.innerHeight - 1;
+      element.style.height = visualOnly ? `${viewport.height}px` : '';
+      element.style.position = visualOnly ? 'relative' : '';
+      element.style.top = visualOnly ? `${viewport.offsetTop}px` : '';
+    };
+    update();
+    viewport.addEventListener('resize', update);
+    viewport.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    return () => {
+      viewport.removeEventListener('resize', update);
+      viewport.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+      element.style.height = '';
+      element.style.position = '';
+      element.style.top = '';
+    };
+  }, [isChat]);
   return (
-    <div className="flex h-dvh overflow-hidden bg-canvas pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+    <div ref={shell} className="flex h-dvh overflow-hidden bg-canvas pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       <a href="#main" className="sr-only z-50 rounded-md bg-ink px-3 py-2 text-sm text-on-ink focus:not-sr-only focus:fixed focus:top-3 focus:left-3">
         Skip to content
       </a>
