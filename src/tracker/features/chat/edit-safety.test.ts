@@ -24,9 +24,13 @@ describe('chat corrections', () => {
     expect(records).toHaveLength(1);
     expect(records[0]?.amount).toBe(60);
     const after = await svc.getChatHistory(original.sessionId);
-    expect(after).toHaveLength(before.length + 2);
-    for (const m of before) expect(after).toContainEqual(m);
-    expect(after.find((m) => m.id === edited.userMessageId)).toMatchObject({ content: input.message, editOfMessageId: original.userMessageId });
+    expect(after).toEqual(before);
+    expect(edited.sessionId).not.toBe(original.sessionId);
+    const branch = await svc.getChatHistory(edited.sessionId);
+    expect(branch).toHaveLength(2);
+    expect(branch[0]).toMatchObject({ content: input.message, editOfMessageId: original.userMessageId });
+    expect(branch[1]?.preservedActions).toEqual(original.actions);
+    expect((await svc.getChatSessions()).map((s) => s.id)).toContain(original.sessionId);
   });
 
   it('answers a read-only correction and rejects nonexistent or assistant targets', async () => {
@@ -36,6 +40,26 @@ describe('chat corrections', () => {
     expect(revision.assistantMessage).toContain('did not change or create any records');
     expect(revision.actions.some((a) => a.toolName === 'get_summary')).toBe(true);
     await expect(svc.sendChatMessage({ sessionId: first.sessionId, clientMessageId: 'c', editOfMessageId: first.assistantMessageId, message: 'test' })).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+  });
+
+  it('forks at an edited meal, keeps earlier context and receipts, and leaves normal later writes enabled', async () => {
+    const svc = service();
+    const first = await svc.sendChatMessage({ clientMessageId: 'hello', message: 'Hello' });
+    const meal = await svc.sendChatMessage({ sessionId: first.sessionId, clientMessageId: 'meal', message: 'I ate two eggs for lunch' });
+    await svc.sendChatMessage({ sessionId: first.sessionId, clientMessageId: 'later', message: 'How much did I spend today?' });
+    const old = await svc.getChatHistory(first.sessionId);
+    const edit = await svc.sendChatMessage({ sessionId: first.sessionId, clientMessageId: 'meal-edit', editOfMessageId: meal.userMessageId, message: 'I ate three eggs for lunch' });
+    const branch = await svc.getChatHistory(edit.sessionId);
+    expect(branch.map((m) => m.content)).toContain('I ate three eggs for lunch');
+    expect(branch.map((m) => m.content)).not.toContain('How much did I spend today?');
+    expect(branch.slice(0, 2).map((m) => m.content)).toEqual(old.slice(0, 2).map((m) => m.content));
+    expect(branch.slice(0, 2).every((m) => !m.clientMessageId)).toBe(true);
+    expect(branch.at(-1)?.preservedActions).toEqual(meal.actions);
+    expect(await svc.getChatHistory(first.sessionId)).toEqual(old);
+    expect(await svc.getMeals()).toHaveLength(1);
+    await svc.sendChatMessage({ sessionId: edit.sessionId, clientMessageId: 'after-edit', message: 'I spent ₹25 on tea' });
+    expect(await svc.getTransactions()).toHaveLength(1);
+    expect(await svc.getMeals()).toHaveLength(1);
   });
 
   it('blocks every model write tool, keeps context and returns the same reply on retry', async () => {
@@ -62,7 +86,7 @@ describe('chat corrections', () => {
     const userPrompt = calls[0]!.messages.at(-1);
     expect(userPrompt?.content).toContain('I spent ₹60 on tea');
     expect(userPrompt?.content).toContain('already saved records');
-    expect(calls[0]!.messages.some((m) => m.content === 'Hello')).toBe(true);
+    expect(calls[0]!.messages.some((m) => m.content === 'Hello')).toBe(false); // later turns stay only in the original branch
     const count = calls.length;
     expect((await runByokChat(args)).assistantMessageId).toBe(reply.assistantMessageId);
     expect(calls).toHaveLength(count);

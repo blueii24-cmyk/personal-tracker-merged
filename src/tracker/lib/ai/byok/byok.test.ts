@@ -145,6 +145,8 @@ describe('tool loop', () => {
   });
 
   it('corrects a record found by search and refuses unknown ids', async () => {
+    const confirm = vi.fn((message: string) => Boolean(message));
+    vi.stubGlobal('confirm', confirm);
     const svc = fresh();
     const tx = await svc.createTransaction({ type: 'expense', amount: 60, category: 'transport', description: 'Uber ride', merchant: 'Uber', notes: null, occurredAt: NOW.toISOString() });
     const { p, calls } = run(svc, 'that uber was 80', [
@@ -155,6 +157,8 @@ describe('tool loop', () => {
     const r = await p;
     const after = (await svc.getTransactions()).find((t) => t.id === tx.id)!;
     expect(after.amount).toBe(80);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm.mock.calls[0]?.[0]).toContain('Uber ride');
     expect((toolResults(calls)[0] as { results: Array<{ id: string }> }).results.map((x) => x.id)).toContain(tx.id);
     const updates = r.actions.filter((a) => a.toolName === 'update_transaction');
     expect(updates.find((a) => a.status === 'succeeded')?.data).toMatchObject({ kind: 'transaction', operation: 'updated', previousAmount: 60 });
@@ -403,5 +407,36 @@ describe('http, keys and addresses', () => {
   });
   it('refuses to build an adapter without a key', () => {
     expect(() => createAdapter({ providerId: 'openai', baseUrl: '' }, '  ')).toThrowError(expect.objectContaining({ code: 'AI_KEY_MISSING' }));
+  });
+});
+
+describe('confirmation of existing record updates', () => {
+  it.each(['transaction', 'meal', 'weight'] as const)('requires approval for %s and never retries after a refusal', async (kind) => {
+    const svc = fresh();
+    const tx = await svc.createTransaction({ type: 'expense', amount: 60, category: 'transport', description: 'Fare', merchant: null, notes: null, occurredAt: NOW.toISOString() });
+    const meal = await svc.createMeal({ mealType: 'lunch', eatenAt: NOW.toISOString(), notes: null, items: [{ foodName: 'Egg', quantity: 1, unit: 'piece', caloriesKcal: null, proteinG: null, isEstimate: false, nutritionSource: 'unknown' }] });
+    const weight = await svc.createWeighIn({ weightKg: 70, recordedAt: NOW.toISOString(), notes: null });
+    const specs = {
+      transaction: { name: 'update_transaction', args: { id: tx.id, changes: { amount: 80 } } },
+      meal: { name: 'update_meal', args: { id: meal.id, changes: { meal_type: 'dinner' } } },
+      weight: { name: 'update_weight', args: { id: weight.id, changes: { weight_kg: 75 } } },
+    };
+    const spec = specs[kind];
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    const { p } = run(svc, 'correct the record', [
+      { toolCalls: [call(spec.name, spec.args, 'first')] },
+      { toolCalls: [call(spec.name, spec.args, 'retry')] },
+      { text: 'Updated!' },
+    ]);
+    const reply = await p;
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(reply.assistantMessage).toContain('not confirmed');
+    expect((await svc.getTransactions()).find((v) => v.id === tx.id)?.amount).toBe(60);
+    expect((await svc.getMeals()).find((v) => v.id === meal.id)?.mealType).toBe('lunch');
+    expect((await svc.getWeighIns()).find((v) => v.id === weight.id)?.weightKg).toBe(70);
+    vi.stubGlobal('confirm', () => true);
+    const approved = await run(svc, 'correct the record', [{ toolCalls: [call(spec.name, spec.args)] }, { text: 'Updated.' }]).p;
+    expect(approved.actions.some((a) => a.status === 'succeeded' && a.toolName === spec.name)).toBe(true);
   });
 });

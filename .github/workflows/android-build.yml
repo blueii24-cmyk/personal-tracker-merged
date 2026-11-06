@@ -185,6 +185,15 @@ jobs:
               echo 'The APK launcher label changed unexpectedly.'
               exit 1
             fi
+            echo 'Compiled Android activity manifest:'
+            "$build_tools/aapt" dump xmltree "$package" AndroidManifest.xml | tee "$RUNNER_TEMP/android-manifest.txt"
+            echo 'Compiled activity/launcher theme resources:'
+            "$build_tools/aapt" dump --values resources "$package" > "$RUNNER_TEMP/android-resources-all.txt"
+            grep -E 'AppTheme|title_activity_main|app_name' "$RUNNER_TEMP/android-resources-all.txt" | tee "$RUNNER_TEMP/android-resources.txt"
+            echo "::notice::Compiled APK manifest activity: $(grep -A12 'E: activity ' "$RUNNER_TEMP/android-manifest.txt" | head -13 | tr '\n' ' ')"
+            echo "::notice::Compiled APK theme/label resources: $(tr '\n' ' ' < "$RUNNER_TEMP/android-resources.txt")"
+            echo "::notice::Compiled splash style bag: $(grep -A12 'style/AppTheme.NoActionBarLaunch: <bag>' "$RUNNER_TEMP/android-resources-all.txt" | tr '\n' ' ')"
+            echo "::notice::Compiled no-action-bar style bag: $(grep -A12 'style/AppTheme.NoActionBar: <bag>' "$RUNNER_TEMP/android-resources-all.txt" | tr '\n' ' ')"
             unzip -q "$package" 'assets/public/*' -d "$asset_dir"
             node scripts/android-ci.mjs verify-assets "$asset_dir/assets/public"
             if [[ "$ANDROID_BUILD_MODE" == 'release' ]]; then
@@ -213,3 +222,42 @@ jobs:
           rm -f android/keystore.properties
           rm -f "$RUNNER_TEMP/personal-tracker-upload.jks"
           rm -rf "$RUNNER_TEMP/android-package-assets"
+
+  android-runtime:
+    name: Android emulator UI smoke test
+    needs: android
+    if: ${{ (inputs.build_type || 'debug') == 'debug' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the built debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: Personal-Tracker-Debug-APK
+          path: apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise the app and IME on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_TEST_APK: apk/app-debug.apk
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: python3 scripts/android-ui-smoke.py
+      - name: Upload Android runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Android-UI-Evidence
+          path: ${{ runner.temp }}/android-ui-evidence
+          if-no-files-found: warn
+          retention-days: 14

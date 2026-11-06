@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+afterEach(() => vi.unstubAllGlobals());
 import { MockTrackerService } from './mock-tracker-service';
 import type { ChatReply } from '../tracker-service';
 
@@ -87,6 +89,8 @@ describe('demo assistant', () => {
   });
 
   it("corrects yesterday's travel expense to ₹30 when exactly one matches, otherwise asks", async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
     const svc = fresh();
     // Two identical fares are ambiguous, so it must ask rather than choosing one.
     await send(svc, 'I spent ₹30 on a bus yesterday');
@@ -101,6 +105,7 @@ describe('demo assistant', () => {
     const r = await send(svc, "Correct yesterday's uber expense to ₹30.");
     expect(r.actions[0]?.status).toBe('succeeded');
     expect((await svc.getTransactions()).find((t) => t.id === uber.id)?.amount).toBe(30);
+    expect(confirm).toHaveBeenCalledOnce();
   });
 
   it('is idempotent for a retried clientMessageId', async () => {

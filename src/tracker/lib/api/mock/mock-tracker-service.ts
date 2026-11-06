@@ -14,6 +14,7 @@ import type {
 import { TrackerError } from '../errors';
 import type { ChatExchange, ChatReply, ExportBundle, RequestOptions, TrackerService, WriteOptions } from '../tracker-service';
 import { editContext, EDIT_NOTICE } from '@/tracker/features/chat/edit-safety';
+import { confirmRecordUpdate } from '@/tracker/features/chat/confirm-record-update';
 import { runDemoAssistant } from './demo-ai';
 import { migrateDb, pruneProcessed, BACKUP_APP, BACKUP_FORMAT_VERSION } from './persistence';
 import { buildEmptyDb, type DemoDb } from './seed';
@@ -410,8 +411,8 @@ export class MockTrackerService implements TrackerService {
     }
 
     if (input.editOfMessageId) {
-      if (!input.sessionId) throw new TrackerError('INVALID_REQUEST', 'A correction needs an existing conversation.', { retryable: false });
-      editContext(this.db.messages.filter((m) => m.sessionId === input.sessionId), input.editOfMessageId);
+      if (!input.sessionId) throw new TrackerError('INVALID_REQUEST', 'An edit needs an existing conversation.', { retryable: false });
+      editContext(this.db.messages.filter((m) => m.sessionId === input.sessionId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)), input.editOfMessageId);
     }
     await wait(CHAT_LATENCY_MS, opts?.signal);
     // Another submit with this id may have completed while this request was waiting.
@@ -420,6 +421,7 @@ export class MockTrackerService implements TrackerService {
 
     const now = this.now();
     const blocked = new Error('Edit regeneration is read-only');
+    const declined = new Error('Record update not confirmed');
     const guard = <T,>(fn: () => T): T => { if (input.editOfMessageId) throw blocked; return fn(); };
     let result;
     try {
@@ -432,12 +434,20 @@ export class MockTrackerService implements TrackerService {
         createMeal: (i) => guard(() => this.insertMeal(i, uid(), 'ai')),
         createTransaction: (i) => guard(() => this.insertTransaction(i, uid(), 'ai')),
         createWeighIn: (i) => guard(() => this.insertWeighIn(i, uid(), 'ai')),
-        updateTransaction: (id, i) => guard(() => this.patchTransaction(id, i)),
-        updateWeighIn: (id, i) => guard(() => this.patchWeighIn(id, i)),
+        updateTransaction: (id, i) => guard(() => {
+          const before = this.db.transactions.find((record) => record.id === id);
+          if (!before || !confirmRecordUpdate('transaction', before, i)) throw declined;
+          return this.patchTransaction(id, i);
+        }),
+        updateWeighIn: (id, i) => guard(() => {
+          const before = this.db.weighIns.find((record) => record.id === id);
+          if (!before || !confirmRecordUpdate('weight entry', before, i)) throw declined;
+          return this.patchWeighIn(id, i);
+        }),
       });
     } catch (error) {
-      if (error !== blocked) throw error;
-      result = { assistantMessage: 'I understood the correction, but cannot change a record during an edit.', actions: [], invalidation: [] };
+      if (error !== blocked && error !== declined) throw error;
+      result = { assistantMessage: error === blocked ? 'I understood the correction, but cannot change a record during an edit.' : 'The proposed record update was not confirmed. No record was changed.', actions: [], invalidation: [] };
     }
 
     const actions = result.actions.map((a, i) => ({ ...a, toolCallId: `demo-${uid().slice(0, 8)}-${i + 1}` }));
@@ -476,8 +486,25 @@ export class MockTrackerService implements TrackerService {
   private commitExchange(x: ChatExchange | (Omit<ChatExchange, 'provider'> & { provider: 'demo' })): ChatReply {
     const now = this.now();
     let sessionId = x.sessionId;
-    const stamp = now.toISOString();
-    if (!sessionId) {
+    let stamp = now.toISOString();
+    let receipts: ChatMessage['preservedActions'];
+    if (x.editOfMessageId) {
+      if (!sessionId) throw new TrackerError('INVALID_REQUEST', 'An edit needs an existing conversation.', { retryable: false });
+      const source = this.db.sessions.find((s) => s.id === sessionId);
+      if (!source) throw new TrackerError('SESSION_NOT_FOUND', "That conversation couldn't be found.", { retryable: false });
+      const history = this.db.messages.filter((m) => m.sessionId === sessionId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const edit = editContext(history, x.editOfMessageId);
+      receipts = edit.receipts;
+      const prefixLast = edit.prefix.at(-1);
+      stamp = new Date(Math.max(now.getTime(), prefixLast ? Date.parse(prefixLast.createdAt) + 1 : 0)).toISOString();
+      sessionId = uid();
+      this.db.sessions.push({ id: sessionId, title: `Revised: ${source.title}`.slice(0, 100), createdAt: stamp, updatedAt: stamp });
+      for (const prior of edit.prefix) {
+        // Unique IDs and no duplicated client message key: cloud sync enforces uniqueness across sessions.
+        const { clientMessageId: _oldKey, ...copy } = prior;
+        this.db.messages.push({ ...copy, id: uid(), sessionId });
+      }
+    } else if (!sessionId) {
       sessionId = uid();
       this.db.sessions.push({ id: sessionId, title: x.userMessage.length > 48 ? `${x.userMessage.slice(0, 45)}…` : x.userMessage, createdAt: stamp, updatedAt: stamp });
     } else {
@@ -488,7 +515,7 @@ export class MockTrackerService implements TrackerService {
     const assistantMessageId = uid();
     this.db.messages.push(
       { id: userMessageId, sessionId, role: 'user', content: x.userMessage, createdAt: stamp, status: 'complete', clientMessageId: x.clientMessageId, ...(x.editOfMessageId ? { editOfMessageId: x.editOfMessageId } : {}) },
-      { id: assistantMessageId, sessionId, role: 'assistant', content: x.assistantMessage, createdAt: new Date(now.getTime() + 1).toISOString(), status: 'complete', actions: x.actions },
+      { id: assistantMessageId, sessionId, role: 'assistant', content: x.assistantMessage, createdAt: new Date(Date.parse(stamp) + 1).toISOString(), status: 'complete', actions: x.actions, ...(receipts?.length ? { preservedActions: receipts } : {}) },
     );
     const response: ChatReply = {
       sessionId, userMessageId, assistantMessageId, assistantMessage: x.assistantMessage, actions: x.actions,

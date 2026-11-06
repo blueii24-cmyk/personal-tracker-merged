@@ -240,6 +240,8 @@ export interface ChatMessage {
   editOfMessageId?: string;
   /** Present on assistant messages. */
   actions?: AiActionResult[];
+  /** Receipts from the original turn, not actions performed by a regenerated answer. */
+  preservedActions?: AiActionResult[];
   error?: ChatErrorInfo;
 }
 
