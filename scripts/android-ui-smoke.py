@@ -113,6 +113,14 @@ try:
     tap(send)
     wait_for(lambda r: match(r, 'hello'), 'sent message')
     snapshot('04-message-sent')
+    # Sending may dismiss the IME. Reopen it before testing that Back closes the keyboard,
+    # rather than testing ordinary app navigation when the keyboard is already hidden.
+    if not ime_visible():
+        tap(wait_for(edit_field, 'chat input after sending'))
+        deadline = time.monotonic() + 15
+        while not ime_visible() and time.monotonic() < deadline:
+            time.sleep(0.5)
+    assert ime_visible(), 'IME did not reopen for dismissal test'
     adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
     deadline = time.monotonic() + 15
     while ime_visible() and time.monotonic() < deadline:
