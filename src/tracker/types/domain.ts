@@ -236,6 +236,8 @@ export interface ChatMessage {
   status: ChatMessageStatus;
   /** Present on user messages; reused when retrying so the backend can de-duplicate. */
   clientMessageId?: string;
+  /** Original message retained in this conversation when this turn is a correction. */
+  editOfMessageId?: string;
   /** Present on assistant messages. */
   actions?: AiActionResult[];
   error?: ChatErrorInfo;

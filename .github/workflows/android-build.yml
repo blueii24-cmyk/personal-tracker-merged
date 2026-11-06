@@ -58,9 +58,9 @@ env:
   NODE_VERSION: '22'
   JAVA_VERSION: '21'
   ANDROID_BUILD_MODE: ${{ inputs.build_type || 'debug' }}
-  # Browser-safe project defaults. Repository Variables remain the override for rotation or another environment.
-  NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL || 'https://vvkdqlnbtkdjqmhybatq.supabase.co' }}
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_BgDB_2-NcplpClCJVJ3Gww_Bre0b6xM' }}
+  # Public project configuration must be explicitly supplied as repository variables.
+  NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
   NEXT_PUBLIC_AUTH_REDIRECT_URL: ${{ vars.NEXT_PUBLIC_AUTH_REDIRECT_URL || 'https://personal-tracker-merged.vercel.app' }}
 
 jobs:

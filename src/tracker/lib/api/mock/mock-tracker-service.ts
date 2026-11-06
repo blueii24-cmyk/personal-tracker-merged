@@ -13,6 +13,7 @@ import type {
 } from '@/tracker/types/domain';
 import { TrackerError } from '../errors';
 import type { ChatExchange, ChatReply, ExportBundle, RequestOptions, TrackerService, WriteOptions } from '../tracker-service';
+import { editContext, EDIT_NOTICE } from '@/tracker/features/chat/edit-safety';
 import { runDemoAssistant } from './demo-ai';
 import { migrateDb, pruneProcessed, BACKUP_APP, BACKUP_FORMAT_VERSION } from './persistence';
 import { buildEmptyDb, type DemoDb } from './seed';
@@ -408,28 +409,44 @@ export class MockTrackerService implements TrackerService {
       throw new TrackerError('SESSION_NOT_FOUND', "That conversation couldn't be found.", { retryable: false });
     }
 
+    if (input.editOfMessageId) {
+      if (!input.sessionId) throw new TrackerError('INVALID_REQUEST', 'A correction needs an existing conversation.', { retryable: false });
+      editContext(this.db.messages.filter((m) => m.sessionId === input.sessionId), input.editOfMessageId);
+    }
     await wait(CHAT_LATENCY_MS, opts?.signal);
+    // Another submit with this id may have completed while this request was waiting.
+    const completedWhileWaiting = this.db.processed[input.clientMessageId] as ChatReply | undefined;
+    if (completedWhileWaiting) return clone(completedWhileWaiting);
 
     const now = this.now();
-    const result = runDemoAssistant(message, {
-      now,
-      settings: this.db.settings,
-      meals: this.db.meals,
-      transactions: this.db.transactions,
-      weighIns: this.db.weighIns,
-      createMeal: (i) => this.insertMeal(i, uid(), 'ai'),
-      createTransaction: (i) => this.insertTransaction(i, uid(), 'ai'),
-      createWeighIn: (i) => this.insertWeighIn(i, uid(), 'ai'),
-      updateTransaction: (id, i) => this.patchTransaction(id, i),
-      updateWeighIn: (id, i) => this.patchWeighIn(id, i),
-    });
+    const blocked = new Error('Edit regeneration is read-only');
+    const guard = <T,>(fn: () => T): T => { if (input.editOfMessageId) throw blocked; return fn(); };
+    let result;
+    try {
+      result = runDemoAssistant(message, {
+        now,
+        settings: this.db.settings,
+        meals: this.db.meals,
+        transactions: this.db.transactions,
+        weighIns: this.db.weighIns,
+        createMeal: (i) => guard(() => this.insertMeal(i, uid(), 'ai')),
+        createTransaction: (i) => guard(() => this.insertTransaction(i, uid(), 'ai')),
+        createWeighIn: (i) => guard(() => this.insertWeighIn(i, uid(), 'ai')),
+        updateTransaction: (id, i) => guard(() => this.patchTransaction(id, i)),
+        updateWeighIn: (id, i) => guard(() => this.patchWeighIn(id, i)),
+      });
+    } catch (error) {
+      if (error !== blocked) throw error;
+      result = { assistantMessage: 'I understood the correction, but cannot change a record during an edit.', actions: [], invalidation: [] };
+    }
 
     const actions = result.actions.map((a, i) => ({ ...a, toolCallId: `demo-${uid().slice(0, 8)}-${i + 1}` }));
     return this.commitExchange({
       sessionId: input.sessionId,
       clientMessageId: input.clientMessageId,
       userMessage: message,
-      assistantMessage: result.assistantMessage,
+      editOfMessageId: input.editOfMessageId,
+      assistantMessage: input.editOfMessageId ? `${result.assistantMessage}\n\n${EDIT_NOTICE}` : result.assistantMessage,
       actions,
       dashboardInvalidation: result.invalidation,
       provider: 'demo',
@@ -470,7 +487,7 @@ export class MockTrackerService implements TrackerService {
     const userMessageId = uid();
     const assistantMessageId = uid();
     this.db.messages.push(
-      { id: userMessageId, sessionId, role: 'user', content: x.userMessage, createdAt: stamp, status: 'complete', clientMessageId: x.clientMessageId },
+      { id: userMessageId, sessionId, role: 'user', content: x.userMessage, createdAt: stamp, status: 'complete', clientMessageId: x.clientMessageId, ...(x.editOfMessageId ? { editOfMessageId: x.editOfMessageId } : {}) },
       { id: assistantMessageId, sessionId, role: 'assistant', content: x.assistantMessage, createdAt: new Date(now.getTime() + 1).toISOString(), status: 'complete', actions: x.actions },
     );
     const response: ChatReply = {

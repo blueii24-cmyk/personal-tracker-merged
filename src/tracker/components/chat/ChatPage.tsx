@@ -10,6 +10,7 @@ import { useToast } from '@/tracker/components/ui/Toast';
 import { LogoMark } from '@/tracker/components/layout/Brand';
 import { APP_NAME } from '@/tracker/config';
 import { useChat } from '@/tracker/features/chat/ChatProvider';
+import { editContext } from '@/tracker/features/chat/edit-safety';
 import { useTracker } from '@/tracker/features/store/TrackerProvider';
 import { toTrackerError } from '@/tracker/lib/api/errors';
 import { dateKeyInTz, formatRelativeDay } from '@/tracker/lib/formatting/dates';
@@ -32,6 +33,7 @@ export default function ChatPage() {
   const handedOff = useRef<string | null>(null);
   const [toDelete, setToDelete] = useState<ChatSession | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // A prompt handed over from the Overview quick panel is sent once, then cleared from history state.
   const incoming = (location.state as { prompt?: string } | null)?.prompt;
@@ -54,6 +56,15 @@ export default function ChatPage() {
       el.scrollTo({ top: el.scrollHeight });
     }
   }, [chat.messages, chat.sending, chat.loadingHistory]);
+  // Capacitor's SystemBars resizes the WebView for the IME. Keep a reader who was already
+  // at the bottom there as the scroll pane changes size; never drag someone back from history.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => { if (stick.current) el.scrollTo({ top: el.scrollHeight }); });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const onScroll = () => {
     const el = scroller.current;
     if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -84,7 +95,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-line px-3 sm:px-5 md:h-14">
         <h1 className="min-w-0 truncate text-sm font-semibold text-ink">{current?.title ?? 'New chat'}</h1>
         <div className="flex shrink-0 items-center gap-1">
@@ -166,7 +177,10 @@ export default function ChatPage() {
           ) : (
             <div role="log" aria-live="polite" aria-label="Conversation" className="space-y-6">
               {chat.messages.map((m) => (
-                <ChatMessage key={m.id} message={m} timezone={tz} busy={chat.sending} onRetry={chat.retry} />
+                <ChatMessage key={m.id} message={m} timezone={tz} busy={chat.sending} onRetry={chat.retry}
+                  editing={editingId === m.id} savedActions={m.role === 'user' && m.status === 'complete' && editContext(chat.messages, m.id).savedActions}
+                  onEdit={setEditingId} onCancelEdit={() => setEditingId(null)}
+                  onSaveEdit={(id, text) => { const accepted = chat.edit(id, text); if (accepted) stick.current = true; return accepted; }} />
               ))}
               {lastIsPendingUser && <ThinkingIndicator />}
             </div>
@@ -177,7 +191,7 @@ export default function ChatPage() {
       <div className="shrink-0 bg-canvas safe-bottom px-3 pt-2 sm:px-6">
         <div className="mx-auto w-full max-w-3xl">
           <ChatComposer ref={composer} sending={chat.sending} onSend={chat.send} onStop={chat.stop} autoFocus />
-          <p className="mt-1 mb-0.5 text-center text-[11px] text-ink-3">
+          <p className="mt-1 mb-0.5 text-center text-[11px] text-ink-3 [@media(max-height:420px)]:hidden">
             {ai.active
               ? `Answered by ${ai.config.model} with your own key. It only handles budgeting and bulking. Nutrition figures are estimates. Records stay in this browser.`
               : t.service.mode === 'demo'
