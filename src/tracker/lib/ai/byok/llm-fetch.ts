@@ -2,9 +2,9 @@ import { isBridgedHost } from './bridged-hosts';
 
 export const LLM_PROXY_PATH = '/api/llm-proxy';
 
-/** Route NVIDIA through the same-origin Next.js function; other providers retain their existing transport. */
+/** Route supported providers through the same-origin Next.js function. */
 export async function llmFetch(url: string, init: RequestInit = {}, fetchImpl: typeof fetch = fetch): Promise<Response> {
-  if (!isBridgedHost(url) || new URL(url).hostname !== 'integrate.api.nvidia.com') return fetchImpl(url, init);
+  if (!isBridgedHost(url)) return fetchImpl(url, init);
   const headers = Object.fromEntries(new Headers(init.headers).entries());
   let body: unknown;
   if (init.body != null) {

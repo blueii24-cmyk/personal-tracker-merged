@@ -1,6 +1,6 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { isNative } from '@/tracker/lib/platform/native';
-import { isBridgedHost, PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
+import { isBridgedHost, PROXY_ERROR, PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
 import { llmFetch } from './llm-fetch';
 
 export interface AiFetchInit {
@@ -93,32 +93,48 @@ export async function aiFetch(
     };
   }
 
-  if (new URL(url).hostname === 'integrate.api.nvidia.com') {
+  const target = new URL(url);
+  // Leave OpenRouter chat on its existing transport; this change concerns discovery.
+  if (target.hostname === 'openrouter.ai' && init.method === 'POST') {
     return {
-      res: await llmFetch(url, {
-        method: init.method,
-        headers: init.headers,
-        ...(init.body === undefined ? {} : { body: init.body }),
-        signal: init.signal,
-      }, resolved.fetchImpl),
+      res: await resolved.fetchImpl(PROXY_PATH, {
+        method: init.method, headers: { ...init.headers, [PROXY_TARGET_HEADER]: url },
+        ...(init.body === undefined ? {} : { body: init.body }), signal: init.signal,
+        credentials: 'same-origin', cache: 'no-store', referrerPolicy: 'no-referrer',
+      }),
       viaRelay: true,
     };
   }
-
-  return {
-    res: await resolved.fetchImpl(PROXY_PATH, {
+  // Only model discovery is safe to retry automatically. Never replay a chat POST:
+  // the first request may already have been processed even if its response was lost.
+  const canTryDirect = init.method === 'GET' && target.hostname === 'openrouter.ai' &&
+    target.pathname === '/api/v1/models' && !target.port && !target.username && !target.password && !target.hash;
+  const directModels = async () => ({
+    res: await resolved.fetchImpl(url, {
+      method: 'GET', headers: init.headers, signal: init.signal,
+      credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', redirect: 'error',
+    }),
+    viaRelay: false,
+  });
+  let response: Response;
+  try {
+    response = await llmFetch(url, {
       method: init.method,
-      headers: { ...init.headers, [PROXY_TARGET_HEADER]: url },
+      headers: init.headers,
       ...(init.body === undefined ? {} : { body: init.body }),
       signal: init.signal,
-      // This URL is same-origin. Keep the Vercel session cookie (when deployment
-      // protection is enabled) without sending cookies to the AI provider.
-      credentials: 'same-origin',
-      cache: 'no-store',
-      referrerPolicy: 'no-referrer',
-    }),
-    viaRelay: true,
-  };
+    }, resolved.fetchImpl);
+  } catch (error) {
+    if (canTryDirect && !init.signal.aborted) return directModels();
+    throw error;
+  }
+  // A missing deployment route or a relay-side upstream failure is not a provider
+  // authentication response. Direct discovery can still work if OpenRouter permits CORS.
+  if (canTryDirect && !init.signal.aborted &&
+      (!response.headers.has(PROXY_MARK) || (response.status >= 500 && response.headers.get(PROXY_ERROR) === '1'))) {
+    return directModels();
+  }
+  return { res: response, viaRelay: true };
 }
 
 export const relayIsMissing = (response: Response): boolean => !response.headers.has(PROXY_MARK);

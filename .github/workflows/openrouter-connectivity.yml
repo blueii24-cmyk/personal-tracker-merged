@@ -1,0 +1,24 @@
+name: OpenRouter public connectivity
+
+on:
+  pull_request:
+    paths:
+      - 'src/tracker/lib/ai/byok/**'
+      - 'src/app/api/**'
+      - 'scripts/check-live-openrouter.mjs'
+      - '.github/workflows/openrouter-connectivity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check public models, browser CORS and production relay without a key
+        run: node scripts/check-live-openrouter.mjs
