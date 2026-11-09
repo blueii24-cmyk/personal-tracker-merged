@@ -15,6 +15,7 @@ export const BRIDGED_PATHS: ReadonlySet<string> = new Set([
 export const PROXY_PATH = '/api/ai-proxy';
 export const PROXY_TARGET_HEADER = 'x-proxy-target';
 export const PROXY_MARK = 'x-ai-proxy';
+export const PROXY_ERROR = 'x-ai-proxy-error';
 
 export function isBridgedHost(url: string): boolean {
   try {
