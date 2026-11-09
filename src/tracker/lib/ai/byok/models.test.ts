@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TrackerError } from '@/tracker/lib/api/errors';
-import { PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
+import { PROXY_MARK } from './bridged-hosts';
+import { LLM_PROXY_PATH } from './llm-fetch';
 import {
   chooseModel, fetchModels, modelGeneration, parseAnthropicModels, parseGeminiModels, parseOpenAiModels, rankModels, SWITCH_MARGIN,
   type RawModel,
@@ -162,10 +163,11 @@ describe('fetchModels', () => {
     vi.stubGlobal('fetch', c);
     await fetchModels({ providerId: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1/chat/completions' }, 'or-secret-123456');
     const [relayUrl, relayInit] = c.mock.calls[0] as unknown as [string, RequestInit];
-    const relayHeaders = relayInit.headers as Record<string, string>;
-    expect(relayUrl).toBe(PROXY_PATH);
-    expect(relayHeaders[PROXY_TARGET_HEADER]).toBe('https://openrouter.ai/api/v1/models');
-    expect(relayHeaders.authorization).toBe('Bearer or-secret-123456');
+    const payload = JSON.parse(String(relayInit.body));
+    expect(relayUrl).toBe(LLM_PROXY_PATH);
+    expect(payload.url).toBe('https://openrouter.ai/api/v1/models');
+    expect(payload.method).toBe('GET');
+    expect(payload.headers.authorization).toBe('Bearer or-secret-123456');
     expect(relayUrl).not.toContain('or-secret');
   });
   it('explains a rejected key without echoing it', async () => {

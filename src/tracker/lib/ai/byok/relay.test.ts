@@ -79,7 +79,7 @@ describe('AI relay', () => {
 });
 
 describe('AI transport', () => {
-  it('relays OpenRouter model discovery with the existing transport', async () => {
+  it('relays OpenRouter model discovery through the JSON endpoint', async () => {
     const url = 'https://openrouter.ai/api/v1/models';
     const fetchImpl = vi.fn(async () => new Response('{}', { headers: { [PROXY_MARK]: '1' } }));
     const result = await aiFetch(url, {
@@ -88,11 +88,46 @@ describe('AI transport', () => {
       signal: signal(),
     }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(result.viaRelay).toBe(true);
-    expect(fetchImpl).toHaveBeenCalledWith('/api/ai-proxy', expect.objectContaining({
-      headers: expect.objectContaining({ [PROXY_TARGET_HEADER]: url }),
-      credentials: 'same-origin',
-      cache: 'no-store',
+    expect(fetchImpl).toHaveBeenCalledWith(LLM_PROXY_PATH, expect.objectContaining({
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      body: JSON.stringify({ url, method: 'GET', headers: { authorization: 'Bearer test-key' } }),
     }));
+  });
+
+  it.each(['network', 'missing relay', 'relay upstream failure'])('falls back to direct OpenRouter discovery on %s', async (reason) => {
+    const url = 'https://openrouter.ai/api/v1/models';
+    const fetchImpl = vi.fn(async (request: string) => {
+      if (request === LLM_PROXY_PATH) {
+        if (reason === 'network') throw new TypeError('Failed to fetch');
+        if (reason === 'missing relay') return new Response('missing', { status: 404 });
+        return new Response('{}', { status: 502, headers: { [PROXY_MARK]: '1', [PROXY_ERROR]: '1' } });
+      }
+      return new Response('{"data":[]}');
+    });
+    const result = await aiFetch(url, { method: 'GET', headers: { authorization: 'Bearer test-key' }, signal: signal() }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result.viaRelay).toBe(false);
+    expect(await result.res.json()).toEqual({ data: [] });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenLastCalledWith(url, expect.objectContaining({ method: 'GET', credentials: 'omit', referrerPolicy: 'no-referrer', headers: { authorization: 'Bearer test-key' } }));
+  });
+
+  it('never retries chat writes when a relay request fails', async () => {
+    const fetchImpl = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    await expect(aiFetch('https://openrouter.ai/api/v1/chat/completions', { method: 'POST', headers: { authorization: 'Bearer test-key' }, body: '{}', signal: signal() }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch })).rejects.toThrow('Failed to fetch');
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('does not bypass a provider authentication error or retry an aborted discovery', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"error":"unauthorized"}', { status: 401, headers: { [PROXY_MARK]: '1' } }));
+    const url = 'https://openrouter.ai/api/v1/models';
+    const result = await aiFetch(url, { method: 'GET', headers: {}, signal: signal() }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result.res.status).toBe(401);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const ctl = new AbortController();
+    ctl.abort();
+    const failing = vi.fn(async () => { throw new DOMException('Aborted', 'AbortError'); });
+    await expect(aiFetch(url, { method: 'GET', headers: {}, signal: ctl.signal }, { native: false, fetchImpl: failing as unknown as typeof fetch })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(failing).toHaveBeenCalledOnce();
   });
 
   it('does not send browser credentials to a direct provider', async () => {

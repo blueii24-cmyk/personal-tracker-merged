@@ -84,7 +84,7 @@ export async function postJson<T>(req: JsonRequest): Promise<{ data: T; requestI
       'NETWORK',
       withDiagnostic(
         throughWebRelay
-          ? `Couldn't reach the app's AI relay for ${host}. Check your connection and whether this deployment requires a Vercel sign-in; the provider has not confirmed whether your key is valid.`
+          ? `Couldn't complete the request to ${host} through the app's relay${req.method === 'GET' && host === 'openrouter.ai' ? ' or the browser' : ''}. Check your connection and deployment access; the provider has not confirmed whether your key is valid.`
           : `Couldn't reach ${host}. The device may be offline, the address may be wrong, or the provider may block browser requests. This does not establish whether your key is valid.`,
         'NETWORK_OR_CORS',
       ),
