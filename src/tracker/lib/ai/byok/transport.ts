@@ -1,6 +1,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { isNative } from '@/tracker/lib/platform/native';
 import { isBridgedHost, PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
+import { llmFetch } from './llm-fetch';
 
 export interface AiFetchInit {
   method: 'GET' | 'POST';
@@ -89,6 +90,18 @@ export async function aiFetch(
         headers: { 'content-type': 'application/json' },
       }),
       viaRelay: false,
+    };
+  }
+
+  if (new URL(url).hostname === 'integrate.api.nvidia.com') {
+    return {
+      res: await llmFetch(url, {
+        method: init.method,
+        headers: init.headers,
+        ...(init.body === undefined ? {} : { body: init.body }),
+        signal: init.signal,
+      }, resolved.fetchImpl),
+      viaRelay: true,
     };
   }
 

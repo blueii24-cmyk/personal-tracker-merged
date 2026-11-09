@@ -1,6 +1,8 @@
 import { TrackerError } from '@/tracker/lib/api/errors';
 import { classifyHttpFailure, withDiagnostic } from './diagnose';
 import { aiFetch, relayIsMissing } from './transport';
+import { isBridgedHost, PROXY_ERROR } from './bridged-hosts';
+import { isNative } from '@/tracker/lib/platform/native';
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -77,10 +79,13 @@ export async function postJson<T>(req: JsonRequest): Promise<{ data: T; requestI
     if (req.signal?.aborted) throw new TrackerError('ABORTED', 'The request was cancelled.', { retryable: true });
     if (timeout.aborted) throw new TrackerError('NETWORK', withDiagnostic(`${req.providerLabel} took too long to answer. Try again, or pick a faster model.`, 'TIMEOUT'), { retryable: true, diagnostic: 'TIMEOUT' });
     const host = safeHost(req.url);
+    const throughWebRelay = isBridgedHost(req.url) && !isNative();
     throw new TrackerError(
       'NETWORK',
       withDiagnostic(
-        `Couldn't reach ${host}. This is a connection problem, not a key problem: you may be offline, the address may be wrong, or the provider doesn't allow requests from a web page (CORS).`,
+        throughWebRelay
+          ? `Couldn't reach the app's AI relay for ${host}. Check your connection and whether this deployment requires a Vercel sign-in; the provider has not confirmed whether your key is valid.`
+          : `Couldn't reach ${host}. The device may be offline, the address may be wrong, or the provider may block browser requests. This does not establish whether your key is valid.`,
         'NETWORK_OR_CORS',
       ),
       { retryable: true, diagnostic: 'NETWORK_OR_CORS' },
@@ -106,6 +111,13 @@ export async function postJson<T>(req: JsonRequest): Promise<{ data: T; requestI
     parsed = rawText ? JSON.parse(rawText) : null;
   } catch {
     parsed = null;
+  }
+
+  if (viaRelay && res.headers.get(PROXY_ERROR) === '1') {
+    const message = res.status >= 500
+      ? `The app's AI relay could not reach ${safeHost(req.url)}. Try again; the provider has not confirmed whether your key is valid.`
+      : `The app's AI relay rejected this request. Check the server address or refresh the app; the provider has not confirmed whether your key is valid.`;
+    throw new TrackerError('NETWORK', withDiagnostic(message, 'RELAY_ERROR'), { retryable: res.status >= 500, diagnostic: 'RELAY_ERROR', status: res.status });
   }
 
   if (res.ok) {

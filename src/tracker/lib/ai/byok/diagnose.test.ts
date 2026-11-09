@@ -73,7 +73,7 @@ describe('provider failure diagnosis', () => {
     const e = await err(postJson({ url: 'https://api.example.com/v1/x', headers: {}, body: {}, apiKey: KEY, providerLabel: 'OpenAI', notFoundMeansModel: true, model: 'm' }));
     expect(e.code).toBe('NETWORK');
     expect(e.diagnostic).toBe('NETWORK_OR_CORS');
-    expect(e.message).toContain('not a key problem');
+    expect(e.message).toContain('does not establish whether your key is valid');
   });
   it('a timeout is reported as a timeout (also with the Android AbortSignal fallbacks)', async () => {
     const t = AbortSignal.timeout;
