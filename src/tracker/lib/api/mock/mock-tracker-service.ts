@@ -394,6 +394,16 @@ export class MockTrackerService implements TrackerService {
     this.persist();
   }
 
+  private chatMode(sessionId: string | undefined, requested: AiChatRequest['mode']): 'log' | 'casual' {
+    if (requested !== undefined && requested !== 'log' && requested !== 'casual') throw new TrackerError('INVALID_REQUEST', 'Invalid chat mode.', { retryable: false });
+    if (!sessionId) return requested ?? 'log';
+    const session = this.db.sessions.find((s) => s.id === sessionId);
+    if (!session) throw new TrackerError('SESSION_NOT_FOUND', "That conversation couldn't be found.", { retryable: false });
+    const mode = session.mode === 'casual' ? 'casual' : 'log';
+    if (requested && requested !== mode) throw new TrackerError('INVALID_REQUEST', 'Start a new conversation to change modes.', { retryable: false });
+    return mode;
+  }
+
   async sendChatMessage(input: AiChatRequest, opts?: RequestOptions): Promise<ChatReply> {
     const message = input.message?.trim() ?? '';
     if (!message) throw new TrackerError('INVALID_REQUEST', 'Write a message first.', { retryable: false });
@@ -419,6 +429,14 @@ export class MockTrackerService implements TrackerService {
     const completedWhileWaiting = this.db.processed[input.clientMessageId] as ChatReply | undefined;
     if (completedWhileWaiting) return clone(completedWhileWaiting);
 
+    const mode = this.chatMode(input.sessionId, input.mode);
+    if (mode === 'casual') {
+      return this.commitExchange({
+        sessionId: input.sessionId, mode, clientMessageId: input.clientMessageId, userMessage: message, editOfMessageId: input.editOfMessageId,
+        assistantMessage: 'Casual conversation requires a connected AI provider. You can configure one in Settings. To save a record, start a Log Mode conversation.',
+        actions: [], dashboardInvalidation: [], provider: 'demo', model: 'demo-assistant',
+      });
+    }
     const now = this.now();
     const blocked = new Error('Edit regeneration is read-only');
     const declined = new Error('Record update not confirmed');
@@ -453,6 +471,7 @@ export class MockTrackerService implements TrackerService {
     const actions = result.actions.map((a, i) => ({ ...a, toolCallId: `demo-${uid().slice(0, 8)}-${i + 1}` }));
     return this.commitExchange({
       sessionId: input.sessionId,
+      mode,
       clientMessageId: input.clientMessageId,
       userMessage: message,
       editOfMessageId: input.editOfMessageId,
@@ -475,7 +494,9 @@ export class MockTrackerService implements TrackerService {
     if (x.sessionId && !this.db.sessions.some((s) => s.id === x.sessionId)) {
       throw new TrackerError('SESSION_NOT_FOUND', "That conversation couldn't be found.", { retryable: false });
     }
-    return this.commitExchange(x);
+    const mode = this.chatMode(x.sessionId, x.mode);
+    if (mode === 'casual' && (x.actions.length || x.dashboardInvalidation.length)) throw new TrackerError('INVALID_REQUEST', 'Casual Mode cannot save tracker actions.', { retryable: false });
+    return this.commitExchange({ ...x, mode });
   }
 
   protected persistenceLabel(): 'demo' | 'cloud' {
@@ -498,7 +519,7 @@ export class MockTrackerService implements TrackerService {
       const prefixLast = edit.prefix.at(-1);
       stamp = new Date(Math.max(now.getTime(), prefixLast ? Date.parse(prefixLast.createdAt) + 1 : 0)).toISOString();
       sessionId = uid();
-      this.db.sessions.push({ id: sessionId, title: `Revised: ${source.title}`.slice(0, 100), createdAt: stamp, updatedAt: stamp });
+      this.db.sessions.push({ id: sessionId, title: `Revised: ${source.title}`.slice(0, 100), mode: source.mode ?? 'log', createdAt: stamp, updatedAt: stamp });
       for (const prior of edit.prefix) {
         // Unique IDs and no duplicated client message key: cloud sync enforces uniqueness across sessions.
         const { clientMessageId: _oldKey, ...copy } = prior;
@@ -506,7 +527,7 @@ export class MockTrackerService implements TrackerService {
       }
     } else if (!sessionId) {
       sessionId = uid();
-      this.db.sessions.push({ id: sessionId, title: x.userMessage.length > 48 ? `${x.userMessage.slice(0, 45)}…` : x.userMessage, createdAt: stamp, updatedAt: stamp });
+      this.db.sessions.push({ id: sessionId, title: x.userMessage.length > 48 ? `${x.userMessage.slice(0, 45)}…` : x.userMessage, mode: x.mode ?? 'log', createdAt: stamp, updatedAt: stamp });
     } else {
       const s = this.db.sessions.find((y) => y.id === sessionId);
       if (s) s.updatedAt = stamp;

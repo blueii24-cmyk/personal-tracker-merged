@@ -52,8 +52,8 @@ export function toRow(kind: Kind, data: unknown, m: Meta, userId: string): Row {
       };
     }
     case 'chatSession': {
-      const x = data as { id: string; title: string; createdAt: string; updatedAt: string };
-      return { ...base, id: x.id, title: x.title, chat_created_at: x.createdAt, chat_updated_at: x.updatedAt };
+      const x = data as { id: string; title: string; createdAt: string; updatedAt: string; mode?: string };
+      return { ...base, id: x.id, title: x.title, chat_created_at: x.createdAt, chat_updated_at: x.updatedAt, ...(x.mode === 'casual' ? { chat_mode: 'casual' } : {}) };
     }
     case 'chatMessage': {
       const x = data as { id: string; sessionId: string; role: string; content: string; createdAt: string; clientMessageId?: string } & Row;
@@ -98,7 +98,7 @@ export function fromRow(kind: Kind, r: Row, items: Row[] = []): unknown {
         weightUnit: r.weight_unit, preferredAiProvider: r.preferred_ai_provider, preferredAiModel: r.preferred_ai_model ?? null,
       };
     case 'chatSession':
-      return { id: r.id, title: r.title, createdAt: iso(r.chat_created_at), updatedAt: iso(r.chat_updated_at) };
+      return { id: r.id, title: r.title, createdAt: iso(r.chat_created_at), updatedAt: iso(r.chat_updated_at), mode: r.chat_mode === 'casual' ? 'casual' : 'log' };
     case 'chatMessage':
       return { ...(r.extra as Row), id: r.id, sessionId: r.session_id, role: r.role, content: r.content, createdAt: iso(r.message_created_at), ...(r.client_message_id ? { clientMessageId: r.client_message_id } : {}) };
     case 'calendarEvent':

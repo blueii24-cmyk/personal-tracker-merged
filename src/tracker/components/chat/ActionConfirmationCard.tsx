@@ -48,7 +48,7 @@ const SavedStatus = ({ updated }: { updated?: boolean }) => (
       {updated ? 'Updated' : 'Saved'}
     </Badge>
     <Badge tone="neutral" className="cursor-help" icon={undefined}>
-      <span title="Local mode: this record is stored only in local app storage, not in the cloud.">Local</span>
+      <span title="Saved on this device. Check Sync status for account synchronization.">Local</span>
     </Badge>
   </span>
 );

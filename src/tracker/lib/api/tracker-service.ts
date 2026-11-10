@@ -44,6 +44,7 @@ export interface WriteOptions {
 /** A finished chat turn produced outside the service (by the user's own model) to be stored as one exchange. */
 export interface ChatExchange {
   sessionId?: string;
+  mode?: import('@/tracker/types/domain').ChatMode;
   clientMessageId: string;
   userMessage: string;
   editOfMessageId?: string;

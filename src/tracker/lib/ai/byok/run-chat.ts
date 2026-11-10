@@ -8,6 +8,8 @@ import { createAdapter, type ByokConfig } from './config';
 import { buildSystemPrompt } from './system-prompt';
 import { executeTool, isWriteTool, type Invalidation, type ToolOutcome } from './tools';
 import { editContext, EDIT_NOTICE } from '@/tracker/features/chat/edit-safety';
+import { casualContext } from '../casual-context';
+import { casualSystemPrompt } from '../casual-prompt';
 
 export const MAX_ROUNDS = 6;
 export const MAX_TOOL_CALLS = 12;
@@ -68,12 +70,18 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   const prior = await service.findChatReply(input.clientMessageId);
   if (prior) return prior;
 
+  if (input.mode !== undefined && input.mode !== 'log' && input.mode !== 'casual') throw new TrackerError('INVALID_REQUEST', 'Invalid chat mode.', { retryable: false });
+  const session = input.sessionId ? (await service.getChatSessions()).find((s) => s.id === input.sessionId) : undefined;
+  if (input.sessionId && !session) throw new TrackerError('SESSION_NOT_FOUND', "That conversation couldn't be found.", { retryable: false });
+  const mode = session ? (session.mode === 'casual' ? 'casual' : 'log') : (input.mode ?? 'log');
+  if (session && input.mode && input.mode !== mode) throw new TrackerError('INVALID_REQUEST', 'Start a new conversation to change modes.', { retryable: false });
   const adapter = args.adapter ?? createAdapter(config, apiKey ?? '');
   const settings = await service.getUserSettings();
   const history = input.sessionId ? await service.getChatHistory(input.sessionId) : [];
   if (input.editOfMessageId && !input.sessionId) throw new TrackerError('INVALID_REQUEST', 'A correction needs an existing conversation.', { retryable: false });
   const edit = input.editOfMessageId ? editContext(history, input.editOfMessageId) : null;
-  const system = buildSystemPrompt(settings, clock(), config.notes);
+  const progress = mode === 'casual' ? await casualContext(service, message, settings) : '';
+  const system = mode === 'casual' ? casualSystemPrompt(progress) : buildSystemPrompt(settings, clock(), config.notes);
   const prompt = edit
     ? `The user edited an earlier message. Original: ${JSON.stringify(edit.original.content)}\nEdited message: ${message}\n${edit.savedActions ? 'The original turn already saved records; do not repeat or undo them.' : 'Earlier saved records are unchanged.'} Regeneration is read-only: do not claim to save or change records.`
     : message;
@@ -93,19 +101,21 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
       const out = await adapter.generate({
-        model: config.model.trim(), system, messages, tools: AI_TOOLS, maxOutputTokens: MAX_OUTPUT_TOKENS, signal,
+        model: config.model.trim(), system, messages, tools: mode === 'casual' ? [] : AI_TOOLS, maxOutputTokens: MAX_OUTPUT_TOKENS, signal,
         relayContext: {
           settings: {
             timezone: settings.timezone,
-            dailyCalorieTarget: settings.dailyCalorieTarget,
-            dailyProteinTargetG: settings.dailyProteinTargetG,
-            monthlyBudget: settings.monthlyBudget,
-            targetWeightKg: settings.targetWeightKg,
-            weightUnit: settings.weightUnit,
+            dailyCalorieTarget: mode === 'casual' ? null : settings.dailyCalorieTarget,
+            dailyProteinTargetG: mode === 'casual' ? null : settings.dailyProteinTargetG,
+            monthlyBudget: mode === 'casual' ? null : settings.monthlyBudget,
+            targetWeightKg: mode === 'casual' ? null : settings.targetWeightKg,
+            weightUnit: mode === 'casual' ? 'kg' : settings.weightUnit,
           },
-          notes: config.notes,
+          notes: mode === 'casual' ? '' : config.notes,
+          mode, progress,
         },
       });
+      if (mode === 'casual' && out.toolCalls.length) throw new TrackerError('AI_ENDPOINT_ERROR', 'Casual Mode cannot run tracker tools. No record was changed.', { retryable: true });
       if (out.model) responseModel = out.model;
       if (!out.toolCalls.length) {
         if (out.finishReason === 'provider_error' && !out.text) throw new TrackerError('PROVIDER_UNAVAILABLE', 'The model declined to answer that.', { retryable: true });
@@ -176,6 +186,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
 
   return service.recordChatExchange({
     sessionId: input.sessionId,
+    mode,
     clientMessageId: input.clientMessageId,
     userMessage: message,
     editOfMessageId: input.editOfMessageId,

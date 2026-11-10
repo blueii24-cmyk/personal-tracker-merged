@@ -4,6 +4,7 @@
  */
 import { AI_TOOLS } from '../../../src/tracker/lib/ai/tool-schemas.ts';
 import { buildSystemPrompt } from '../../../src/tracker/lib/ai/byok/system-prompt.ts';
+import { casualSystemPrompt } from '../../../src/tracker/lib/ai/casual-prompt.ts';
 import type { CanonicalMessage, CanonicalToolCall, ProviderGenerateOutput } from '../../../src/tracker/lib/ai/provider.ts';
 import type { UserSettings } from '../../../src/tracker/types/domain.ts';
 
@@ -87,6 +88,8 @@ export interface DefaultRelayInput {
   settings: UserSettings;
   notes: string;
   maxOutputTokens: number;
+  mode: 'log' | 'casual';
+  progress: string;
 }
 
 /** The browser cannot choose a system prompt, provider, model, URL, or tool list. */
@@ -95,7 +98,10 @@ export function validateGenerateInput(value: unknown): DefaultRelayInput {
   if (!body || !Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > DEFAULT_AI_MAX_MESSAGES) {
     throw new AiRequestError('Invalid or too many messages.');
   }
+  const mode = body.mode === undefined ? 'log' : body.mode;
+  if (mode !== 'log' && mode !== 'casual') throw new AiRequestError('Invalid chat mode.');
   const messages = body.messages.map(messageFrom);
+  if (mode === 'casual' && messages.some((message) => message.role === 'tool' || (message.role === 'assistant' && message.toolCalls?.length))) throw new AiRequestError('Casual Mode does not allow tool calls.');
   if (!messages.some((message) => message.role === 'user')) throw new AiRequestError('A user message is required.');
   const context = record(body.context);
   const notes = text(context?.notes, DEFAULT_AI_MAX_NOTES);
@@ -104,11 +110,13 @@ export function validateGenerateInput(value: unknown): DefaultRelayInput {
   if (typeof maxOutputTokens !== 'number' || !Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > DEFAULT_AI_MAX_OUTPUT_TOKENS) {
     throw new AiRequestError('Invalid output-token limit.');
   }
-  return { messages, settings: settingsFrom(context.settings), notes, maxOutputTokens };
+  const progress = mode === 'casual' ? text(context.progress, 4000) : '';
+  if (progress === null) throw new AiRequestError('Invalid progress context.');
+  return { messages, settings: settingsFrom(context.settings), notes, maxOutputTokens, mode, progress };
 }
 
 export function buildRelaySystem(input: DefaultRelayInput, now: Date): string {
-  return buildSystemPrompt(input.settings, now, input.notes);
+  return input.mode === 'casual' ? casualSystemPrompt(input.progress) : buildSystemPrompt(input.settings, now, input.notes);
 }
 
 type OpenAiMessage =
@@ -131,8 +139,7 @@ export function toProviderBody(input: DefaultRelayInput, model: string, system: 
     model,
     messages,
     max_tokens: input.maxOutputTokens,
-    tools: AI_TOOLS.map((tool) => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })),
-    tool_choice: 'auto',
+    ...(input.mode === 'log' ? { tools: AI_TOOLS.map((tool) => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })), tool_choice: 'auto' } : {}),
   };
 }
 

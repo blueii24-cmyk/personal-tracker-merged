@@ -34,6 +34,8 @@ export type ProviderGenerateInput = {
   relayContext?: {
     settings: Pick<import('../../types/domain').UserSettings, 'timezone' | 'dailyCalorieTarget' | 'dailyProteinTargetG' | 'monthlyBudget' | 'targetWeightKg' | 'weightUnit'>;
     notes: string;
+    mode?: import('../../types/domain').ChatMode;
+    progress?: string;
   };
 };
 

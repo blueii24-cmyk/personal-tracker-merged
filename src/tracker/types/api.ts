@@ -2,6 +2,7 @@ import type { AiProviderId } from '../lib/ai/provider';
 
 export type AiChatRequest = {
   sessionId?: string;
+  mode?: import('./domain').ChatMode;
   /** Generate once per submitted UI message and reuse for retries. */
   clientMessageId: string;
   message: string;
