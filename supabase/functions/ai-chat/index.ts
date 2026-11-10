@@ -99,6 +99,7 @@ Deno.serve(async (req) => {
       provider: configured ? PROVIDER : null,
       model: configured ? MODEL : null,
       maxOutputTokens: DEFAULT_AI_MAX_OUTPUT_TOKENS,
+      supportsCasualMode: true,
       // This reports configuration only, not provider connectivity or remaining quota.
     });
   }
@@ -188,6 +189,7 @@ Deno.serve(async (req) => {
       throw new ProviderCompatibilityError('The provider returned invalid JSON.');
     }
     const output = parseProviderOutput(providerBody, MODEL);
+    if (input.mode === 'casual' && output.toolCalls.length) throw new ProviderCompatibilityError('Casual Mode does not allow tool calls.');
     const actualInput = output.usage?.inputTokens ?? reservedInput;
     const actualOutput = output.usage?.outputTokens ?? reservedOutput;
     const actualCost = usageCostMicros(actualInput, actualOutput, inputPrice, outputPrice);

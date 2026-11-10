@@ -9,6 +9,7 @@ export interface DefaultAiStatus {
   provider: string | null;
   model: string | null;
   maxOutputTokens: number;
+  supportsCasualMode: boolean;
 }
 
 const asRecord = (value: unknown): Record<string, unknown> | null => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -45,6 +46,7 @@ async function relayRequest(action: 'status' | 'generate', input?: ProviderGener
       body: JSON.stringify(action === 'status' ? { action } : {
         action,
         context: input?.relayContext,
+        mode: input?.relayContext?.mode,
         messages: input?.messages,
         maxOutputTokens: input?.maxOutputTokens,
       }),
@@ -90,6 +92,10 @@ export class DefaultAiAdapter implements AiProviderAdapter {
   readonly providerId: AiProviderId = 'openai-compatible';
   async generate(input: ProviderGenerateInput): Promise<ProviderGenerateOutput> {
     if (!input.relayContext) throw new TrackerError('INVALID_REQUEST', 'Default AI needs tracker context.', { retryable: false });
+    if (input.relayContext.mode === 'casual') {
+      const status = await getDefaultAiStatus(input.signal);
+      if (!status.supportsCasualMode) throw new TrackerError('NOT_CONFIGURED', 'The default AI server needs an update before Casual Mode is available.', { retryable: false });
+    }
     return outputFrom(await relayRequest('generate', input));
   }
 }
@@ -102,5 +108,6 @@ export async function getDefaultAiStatus(signal?: AbortSignal): Promise<DefaultA
     provider: typeof body?.provider === 'string' ? body.provider : null,
     model: typeof body?.model === 'string' ? body.model : null,
     maxOutputTokens: typeof body?.maxOutputTokens === 'number' ? body.maxOutputTokens : 0,
+    supportsCasualMode: body?.supportsCasualMode === true,
   };
 }

@@ -212,7 +212,11 @@ export interface DashboardSummary {
 
 /* -------------------------------- Chat --------------------------------- */
 
+export type ChatMode = 'log' | 'casual';
+
 export interface ChatSession {
+  /** Missing on legacy sessions; interpreted as log. */
+  mode?: ChatMode;
   id: string;
   title: string;
   createdAt: IsoDateTime;

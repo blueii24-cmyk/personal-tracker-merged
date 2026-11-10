@@ -2,10 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { isAbortError, toTrackerError } from '@/tracker/lib/api/errors';
 import type { ChatReply, RequestOptions, TrackerService } from '@/tracker/lib/api/tracker-service';
 import type { AiChatRequest } from '@/tracker/types/api';
-import type { ChatErrorInfo, ChatMessage, ChatSession } from '@/tracker/types/domain';
+import type { ChatErrorInfo, ChatMessage, ChatSession, ChatMode } from '@/tracker/types/domain';
 
 interface ChatApi {
   sessions: ChatSession[];
+  mode: ChatMode;
+  changeMode: (mode: ChatMode) => void;
   activeSessionId: string | null;
   messages: ChatMessage[];
   sending: boolean;
@@ -30,6 +32,9 @@ const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? c
 export type ChatSender = (input: AiChatRequest, opts: RequestOptions) => Promise<ChatReply>;
 
 export function ChatProvider({ service, onRecordsChanged, sender, children }: { service: TrackerService; onRecordsChanged: () => Promise<void>; /** Replaces the service's own assistant, e.g. with the user's own model. */ sender?: ChatSender; children: ReactNode }) {
+  const [mode, setMode] = useState<ChatMode>('log');
+  const modeRef = useRef<ChatMode>('log');
+  const updateMode = useCallback((m: ChatMode) => { modeRef.current = m; setMode(m); }, []);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActive] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -38,6 +43,7 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
   const [historyError, setHistoryError] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
   const activeRef = useRef<string | null>(null);
+  const loadingRef = useRef(false);
   const updateActive = useCallback((id: string | null) => {
     activeRef.current = id;
     setActive(id);
@@ -72,7 +78,7 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
       setSending(true);
       patchMessage(userMessage.id, { status: 'sending', error: undefined });
       try {
-        const request: AiChatRequest = { sessionId: userMessage.sessionId ?? undefined, clientMessageId: userMessage.clientMessageId!, message: userMessage.content, editOfMessageId: userMessage.editOfMessageId };
+        const request: AiChatRequest = { mode: modeRef.current, sessionId: userMessage.sessionId ?? undefined, clientMessageId: userMessage.clientMessageId!, message: userMessage.content, editOfMessageId: userMessage.editOfMessageId };
         const reply = await (sender ?? ((r, o) => service.sendChatMessage(r, o)))(request, { signal: ctl.signal });
         // Refresh saved records and conversation list even if the user navigated while sending.
         if (reply.dashboardInvalidation.length > 0) await onRecordsChanged().catch(() => undefined);
@@ -116,7 +122,7 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
   const send = useCallback(
     (text: string) => {
       const content = text.trim();
-      if (!content || controller.current) return;
+      if (!content || controller.current || loadingRef.current) return;
       const msg: ChatMessage = {
         id: newId(),
         sessionId: activeRef.current,
@@ -162,28 +168,44 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
   const newChat = useCallback(() => {
     controller.current?.abort();
     updateActive(null);
+    loadingRef.current = false;
+    setLoadingHistory(false);
     setMessages([]);
     setHistoryError(null);
-  }, [updateActive]);
+    updateMode('log');
+  }, [updateActive, updateMode]);
+
+  const changeMode = useCallback((next: ChatMode) => {
+    if (controller.current || loadingRef.current || next === modeRef.current) return;
+    if (messages.length && !window.confirm('Changing modes starts a new conversation. Your saved conversation remains in Conversations; unsent or failed messages will not be saved. Continue?')) return;
+    updateActive(null);
+    setMessages([]);
+    setHistoryError(null);
+    updateMode(next);
+  }, [messages.length, updateActive, updateMode]);
 
   const openSession = useCallback(
     (id: string) => {
       controller.current?.abort();
       updateActive(id);
+      loadingRef.current = true;
       setMessages([]);
       setHistoryError(null);
       setLoadingHistory(true);
-      service
-        .getChatHistory(id)
-        .then((ms) => {
-          if (activeRef.current === id) setMessages(ms);
+      Promise.all([service.getChatHistory(id), service.getChatSessions()])
+        .then(([ms, list]) => {
+          if (activeRef.current !== id) return;
+          const session = list.find((s) => s.id === id);
+          if (!session) throw new Error('That conversation could not be found.');
+          updateMode(session.mode === 'casual' ? 'casual' : 'log');
+          setMessages(ms);
         })
         .catch((e) => {
           if (activeRef.current === id) setHistoryError(toTrackerError(e).message);
         })
-        .finally(() => setLoadingHistory(false));
+        .finally(() => { if (activeRef.current === id) { loadingRef.current = false; setLoadingHistory(false); } });
     },
-    [service, updateActive],
+    [service, updateActive, updateMode],
   );
 
   const deleteSession = useCallback(
@@ -197,8 +219,8 @@ export function ChatProvider({ service, onRecordsChanged, sender, children }: { 
   );
 
   const value = useMemo<ChatApi>(
-    () => ({ sessions, activeSessionId, messages, sending, loadingHistory, historyError, send, edit, retry, stop, newChat, openSession, deleteSession }),
-    [sessions, activeSessionId, messages, sending, loadingHistory, historyError, send, edit, retry, stop, newChat, openSession, deleteSession],
+    () => ({ sessions, mode, changeMode, activeSessionId, messages, sending, loadingHistory, historyError, send, edit, retry, stop, newChat, openSession, deleteSession }),
+    [sessions, mode, changeMode, activeSessionId, messages, sending, loadingHistory, historyError, send, edit, retry, stop, newChat, openSession, deleteSession],
   );
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

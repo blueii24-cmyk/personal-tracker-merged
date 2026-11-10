@@ -8,8 +8,9 @@ interface SegmentedProps<T extends string> {
   label: string;
   className?: string;
   size?: 'sm' | 'md';
+  disabled?: boolean;
 }
-export function Segmented<T extends string>({ value, onChange, options, label, className, size = 'md' }: SegmentedProps<T>) {
+export function Segmented<T extends string>({ value, onChange, options, label, className, size = 'md', disabled = false }: SegmentedProps<T>) {
   return (
     <div role="radiogroup" aria-label={label} className={cn('inline-flex rounded-full bg-sunken p-1', className)}>
       {options.map((o) => {
@@ -18,6 +19,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, c
           <button
             key={o.value}
             type="button"
+            disabled={disabled}
             role="radio"
             aria-checked={active}
             aria-label={o.ariaLabel}

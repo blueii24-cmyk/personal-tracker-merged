@@ -114,7 +114,7 @@ export function normalizeSettings(raw: unknown): UserSettings {
 
 export function normalizeSession(raw: unknown): ChatSession | null {
   if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.title) || !validIso(raw.createdAt) || !validIso(raw.updatedAt)) return null;
-  return raw as unknown as ChatSession;
+  return { ...raw, mode: raw.mode === 'casual' ? 'casual' : 'log' } as unknown as ChatSession;
 }
 export function normalizeMessage(raw: unknown): (ChatMessage & { sessionId: string }) | null {
   if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.sessionId) || !isStr(raw.content) || !validIso(raw.createdAt)) return null;

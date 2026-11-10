@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/tracker/components/ui/Dialog';
 import { ErrorState } from '@/tracker/components/ui/EmptyState';
 import { MenuItem, Popover } from '@/tracker/components/ui/Popover';
 import { Skeleton } from '@/tracker/components/ui/Skeleton';
+import { Segmented } from '@/tracker/components/ui/Segmented';
 import { useToast } from '@/tracker/components/ui/Toast';
 import { LogoMark } from '@/tracker/components/layout/Brand';
 import { APP_NAME } from '@/tracker/config';
@@ -126,7 +127,7 @@ export default function ChatPage() {
                           }}
                         >
                           <span className="block truncate">{s.title}</span>
-                          <span className="block text-xs font-normal text-ink-3">{formatRelativeDay(dateKeyInTz(s.updatedAt, tz), t.today)}</span>
+                          <span className="block text-xs font-normal text-ink-3">{s.mode === 'casual' ? 'Casual Mode' : 'Log Mode'} · {formatRelativeDay(dateKeyInTz(s.updatedAt, tz), t.today)}</span>
                         </MenuItem>
                       </div>
                       <Button
@@ -154,6 +155,13 @@ export default function ChatPage() {
         </div>
       </div>
 
+      <div className="shrink-0 border-b border-line px-3 py-2 sm:px-5">
+        <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-x-3 gap-y-1">
+          <Segmented label="Chat mode" size="sm" value={chat.mode} disabled={chat.sending || chat.loadingHistory} onChange={chat.changeMode} options={[{ value: 'log', label: 'Log Mode' }, { value: 'casual', label: 'Casual Mode' }]} />
+          <p className="text-xs text-ink-3">{chat.mode === 'log' ? 'Record and manage your tracker data.' : 'Talk freely about your day, goals and progress.'}</p>
+        </div>
+      </div>
+
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6">
           {chat.loadingHistory ? (
@@ -166,13 +174,11 @@ export default function ChatPage() {
           ) : empty ? (
             <div className="my-auto py-6">
               <LogoMark className="mb-5 size-11 rounded-xl" />
-              <h2 className="display text-[30px] leading-tight text-ink sm:text-[38px]">What would you like to log?</h2>
+              <h2 className="display text-[30px] leading-tight text-ink sm:text-[38px]">{chat.mode === 'log' ? 'What would you like to log?' : 'What would you like to talk about?'}</h2>
               <p className="mt-3 max-w-xl text-[15px] text-ink-2">
-                {APP_NAME}&apos;s assistant turns a sentence into a saved record. Tell it what you ate, spent, received or weigh, or ask about your totals. Corrections work too.
+                {chat.mode === 'log' ? `${APP_NAME}’s assistant turns a sentence into a saved record. Tell it what you ate, spent, received or weigh, or ask about your totals. Corrections work too.` : 'Talk about your day, goals or progress. Casual Mode never changes tracker records.'}
               </p>
-              <div className="mt-6">
-                <SuggestionCards onPick={pick} />
-              </div>
+              {chat.mode === 'log' && <div className="mt-6"><SuggestionCards onPick={pick} /></div>}
             </div>
           ) : (
             <div role="log" aria-live="polite" aria-label="Conversation" className="space-y-6">
@@ -192,7 +198,7 @@ export default function ChatPage() {
         <div className="mx-auto w-full max-w-3xl">
           <ChatComposer ref={composer} sending={chat.sending} onSend={chat.send} onStop={chat.stop} />
           <p className="mt-1 mb-0.5 text-center text-[11px] text-ink-3 [@media(max-height:420px)]:hidden">
-            {ai.active
+            {chat.mode === 'casual' ? 'Casual Mode is read-only. Relevant summaries may be sent to your AI provider when you ask about progress. Select Log Mode to log.' : ai.active
               ? `Answered by ${ai.config.model} with your own key. It only handles budgeting and bulking. Nutrition figures are estimates. Records stay in this browser.`
               : t.service.mode === 'demo'
                 ? 'Built-in assistant: replies come from on-device rules, not an AI model. Records stay in local app storage.'
