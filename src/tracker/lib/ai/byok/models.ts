@@ -19,6 +19,7 @@ import { ANTHROPIC_URL } from './anthropic';
 import { GEMINI_BASE_URL } from './gemini';
 import { getJson } from './http';
 import { normalizeBaseUrl, OPENAI_BASE_URL } from './openai';
+import { geminiKeyProblem } from './config';
 
 /* --------------------------------- types --------------------------------- */
 
@@ -138,6 +139,8 @@ export async function fetchRawModels(
 ): Promise<RawModel[]> {
   const key = apiKey.trim();
   if (!key) throw new TrackerError('AI_KEY_MISSING', 'Add your API key first, then models can be detected.', { retryable: false });
+  const problem = geminiKeyProblem(config.providerId, key);
+  if (problem) throw new TrackerError('INVALID_REQUEST', problem, { retryable: false });
   const common = { apiKey: key, signal, timeoutMs: 20_000 };
   switch (config.providerId) {
     case 'openai': {

@@ -80,6 +80,7 @@ export class GeminiAdapter implements AiProviderAdapter {
       body.toolConfig = { functionCallingConfig: { mode: 'AUTO' } };
     }
     const model = input.model.replace(/^models\//, '');
+    if (!/^[a-zA-Z0-9._-]{1,120}$/.test(model)) throw new TrackerError('INVALID_REQUEST', 'Use a Google Gemini model name, not a model from another provider.', { retryable: false });
     const { data, requestId } = await postJson<GResponse>({
       // The key travels in a header, not the URL, so it can't leak through logs or the address bar.
       url: `${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:generateContent`,

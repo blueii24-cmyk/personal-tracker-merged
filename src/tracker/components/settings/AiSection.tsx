@@ -13,7 +13,7 @@ import { useAiConfig } from '@/tracker/features/ai-config/AiConfigProvider';
 import { useTracker } from '@/tracker/features/store/TrackerProvider';
 import { useAuth } from '@/tracker/features/auth/AuthProvider';
 import { toTrackerError } from '@/tracker/lib/api/errors';
-import { baseUrlError, configError, NOTES_MAX, PROVIDERS, providerInfo, SERVER_PRESETS, type ByokConfig, type KeyStorage } from '@/tracker/lib/ai/byok/config';
+import { baseUrlError, configError, geminiKeyProblem, NOTES_MAX, PROVIDERS, providerInfo, SERVER_PRESETS, type ByokConfig, type KeyStorage } from '@/tracker/lib/ai/byok/config';
 import { fetchModels, type ModelListing } from '@/tracker/lib/ai/byok/models';
 import { testConnection } from '@/tracker/lib/ai/byok/run-chat';
 import type { AiProviderId } from '@/tracker/lib/ai/provider';
@@ -58,7 +58,7 @@ export function AiSection() {
   // Detect the models this key can use whenever the provider, server or key changes (and on "Detect models").
   useEffect(() => {
     const d = draft;
-    const apiKey = key.trim() || ai.getKey();
+    const apiKey = key.trim() || (d.providerId === ai.config.providerId ? ai.getKey() : '');
     const canDetect = Boolean(apiKey) && !keyProblem(apiKey) && !(d.providerId === 'openai-compatible' && baseUrlError(d.baseUrl));
     const ctrl = new AbortController();
     const timer = window.setTimeout(async () => {
@@ -90,14 +90,16 @@ export function AiSection() {
       ctrl.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.providerId, draft.baseUrl, draft.autoModel, key, ai.hasKey, detectNonce]);
+  }, [draft.providerId, draft.baseUrl, draft.autoModel, key, ai.hasKey, ai.config.providerId, detectNonce]);
 
   useEffect(() => {
     if (hash === '#ai') wrap.current?.scrollIntoView({ block: 'start' });
   }, [hash]);
 
   const info = providerInfo(draft.providerId);
-  const keyNeeded = !ai.hasKey || key.trim() !== '';
+  const providerChanged = draft.providerId !== ai.config.providerId;
+  const keyNeeded = !ai.hasKey || providerChanged || key.trim() !== '';
+  const effectiveKey = key.trim() || (!providerChanged ? ai.getKey() : '');
 
   const validate = (): Errors => {
     const e: Errors = { ...configError(draft) };
@@ -105,6 +107,8 @@ export function AiSection() {
       const k = keyProblem(key);
       if (k) e.key = k;
     }
+    const mismatch = geminiKeyProblem(draft.providerId, effectiveKey);
+    if (mismatch) e.key = mismatch;
     setErrors(e);
     return e;
   };
@@ -124,7 +128,7 @@ export function AiSection() {
   const runTest = async () => {
     const e = validate();
     if (Object.keys(e).length) return;
-    const apiKey = key.trim() || ai.getKey();
+    const apiKey = effectiveKey;
     setTest({ state: 'running' });
     // In auto mode, if the first choice turns out to be unavailable to this key, try the next best few.
     const candidates = draft.autoModel && listing
@@ -212,7 +216,14 @@ export function AiSection() {
             <div className="grid grid-cols-1 gap-3">
               <Field label="Provider">
                 {({ id, describedBy }) => (
-                  <Select id={id} aria-describedby={describedBy} value={draft.providerId} onChange={(e) => patch({ providerId: e.target.value as AiProviderId })}>
+                  <Select id={id} aria-describedby={describedBy} value={draft.providerId} onChange={(e) => {
+                    const providerId = e.target.value as AiProviderId;
+                    setKey(''); // An unsaved key belongs to the previously selected provider.
+                    setListing(null);
+                    setDetect({ state: 'idle' });
+                    setErrors({});
+                    patch({ providerId, model: providerId === ai.config.providerId ? ai.config.model : '' });
+                  }}>
                     {PROVIDERS.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
@@ -243,7 +254,7 @@ export function AiSection() {
               </div>
             )}
 
-            <Field label="API key" error={errors.key} hint={ai.hasKey ? `Saved as ${ai.keyHint}. Leave this empty to keep it, or paste a new one to replace it.` : info.keyHint}>
+            <Field label="API key" error={errors.key} hint={providerChanged && ai.hasKey ? `Enter a key for ${info.label}. Your previous key stays saved until you save a replacement.` : ai.hasKey ? `Saved as ${ai.keyHint}. Leave this empty to keep it, or paste a new one to replace it.` : info.keyHint}>
               {({ id, describedBy, invalid }) => (
                 <div className="relative">
                   <KeyRound className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-3" aria-hidden />
@@ -369,7 +380,7 @@ export function AiSection() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" onClick={() => setDetectNonce((n) => n + 1)} disabled={detect.state === 'loading' || (!key.trim() && !ai.hasKey)}>
+                <Button type="button" size="sm" onClick={() => setDetectNonce((n) => n + 1)} disabled={detect.state === 'loading' || !effectiveKey}>
                   <RefreshCw className="size-4" aria-hidden />
                   Detect models
                 </Button>

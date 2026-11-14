@@ -77,7 +77,18 @@ export function createLlmProxyHandler(fetchImpl: typeof fetch = fetch) {
     if (target.protocol !== 'https:' || target.username || target.password || target.port || target.hash) {
       return reject(400, 'Only plain https addresses are allowed.');
     }
-    const expectedMethod = Object.hasOwn(ALLOWED_PATHS, target.hostname) ? ALLOWED_PATHS[target.hostname]?.[target.pathname] : undefined;
+    const isGemini = target.hostname === 'generativelanguage.googleapis.com';
+    const googleModels = isGemini && target.pathname === '/v1beta/models';
+    const googleChat = isGemini && /^\/v1beta\/models\/[a-zA-Z0-9._-]{1,120}:generateContent$/.test(target.pathname);
+    if (isGemini) {
+      // Never accept credentials or arbitrary parameters in a URL. Only the model
+      // listing page size is needed by this app; chat has no query parameters.
+      const params = [...target.searchParams.entries()];
+      if (googleModels ? params.some(([k, v]) => k !== 'pageSize' || v !== '1000') || params.length > 1 : params.length > 0) {
+        return reject(400, 'Unsupported Gemini query parameters.');
+      }
+    }
+    const expectedMethod = googleModels ? 'GET' : googleChat ? 'POST' : Object.hasOwn(ALLOWED_PATHS, target.hostname) ? ALLOWED_PATHS[target.hostname]?.[target.pathname] : undefined;
     if (!expectedMethod) return reject(403, 'That provider or endpoint is not allowed.');
     const method = input.method ?? 'GET';
     if (method !== expectedMethod) return reject(405, 'Method not allowed for this endpoint.');
@@ -85,14 +96,18 @@ export function createLlmProxyHandler(fetchImpl: typeof fetch = fetch) {
       return reject(400, 'Invalid request headers.');
     }
     let authorization: string | null;
+    let googleKey: string | null;
     try {
       const supplied = new Headers(input.headers as Record<string, string> | undefined);
       authorization = supplied.get('authorization');
+      googleKey = supplied.get('x-goog-api-key');
     } catch {
       return reject(400, 'Invalid request headers.');
     }
     const headers: Record<string, string> = { accept: 'application/json, text/event-stream' };
-    if (authorization) headers.authorization = authorization;
+    if (isGemini) {
+      if (googleKey) headers['x-goog-api-key'] = googleKey;
+    } else if (authorization) headers.authorization = authorization;
     let body: string | undefined;
     if (method === 'POST') {
       if (input.body === undefined || !input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {

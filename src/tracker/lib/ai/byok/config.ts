@@ -74,10 +74,20 @@ export function baseUrlError(raw: string): string | null {
   return 'Use an https:// address. Plain http is only allowed for a server on this device (localhost).';
 }
 
+/** Reject only an unmistakable NVIDIA key on Google's native endpoint. Do not
+ * assume all valid Google keys have a particular prefix. */
+export function geminiKeyProblem(providerId: AiProviderId, key: string): string | undefined {
+  if (providerId === 'gemini' && /^nvapi-/i.test(key.trim())) {
+    return 'That looks like an NVIDIA API key, not a Google Gemini key. Enter your Gemini API key in Settings; the saved key is unchanged until you save.';
+  }
+  return undefined;
+}
+
 export function configError(c: ByokConfig): Partial<Record<'model' | 'baseUrl' | 'notes', string>> {
   const e: Partial<Record<'model' | 'baseUrl' | 'notes', string>> = {};
   if (!c.model.trim()) e.model = c.autoModel ? 'No model picked yet. Add your key and the best one will be detected.' : 'Enter the model name you want to use.';
   else if (c.model.trim().length > 120 || /\s/.test(c.model.trim())) e.model = 'Model names have no spaces. Copy it exactly from your provider.';
+  if (c.providerId === 'gemini' && c.model.trim() && !/^(?:models\/)?[a-zA-Z0-9._-]{1,120}$/.test(c.model.trim())) e.model = 'Use a Google Gemini model name, not a model from another provider.';
   if (c.providerId === 'openai-compatible') {
     const m = baseUrlError(c.baseUrl);
     if (m) e.baseUrl = m;
@@ -89,6 +99,8 @@ export function configError(c: ByokConfig): Partial<Record<'model' | 'baseUrl' |
 export function createAdapter(config: Pick<ByokConfig, 'providerId' | 'baseUrl'>, apiKey: string): AiProviderAdapter {
   const key = apiKey.trim();
   if (!key) throw new TrackerError('AI_KEY_MISSING', 'No API key is saved. Add one in Settings → AI assistant.', { retryable: false });
+  const problem = geminiKeyProblem(config.providerId, key);
+  if (problem) throw new TrackerError('INVALID_REQUEST', problem, { retryable: false });
   switch (config.providerId) {
     case 'openai':
       return new OpenAiAdapter(key, OPENAI_BASE_URL, false);
