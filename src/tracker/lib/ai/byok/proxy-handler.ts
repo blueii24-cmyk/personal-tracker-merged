@@ -32,7 +32,8 @@ export function createProxyHandler(fetchImpl: typeof fetch = fetch) {
     if (target.protocol !== 'https:' || target.username || target.password || target.port) {
       return reply(400, 'Only plain https addresses are allowed.');
     }
-    if (!BRIDGED_HOSTS.has(target.hostname)) return reply(400, 'That host is not on the relay allow-list.');
+    // Gemini uses only the JSON relay; do not expose it through this older generic relay.
+    if (!BRIDGED_HOSTS.has(target.hostname) || target.hostname === 'generativelanguage.googleapis.com') return reply(400, 'That host is not on the relay allow-list.');
     if (!BRIDGED_PATHS.has(target.pathname)) return reply(400, 'That path is not allowed.');
 
     const headers: Record<string, string> = { accept: 'application/json' };

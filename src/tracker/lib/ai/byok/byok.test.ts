@@ -352,14 +352,27 @@ describe('http, keys and addresses', () => {
     expect(out.toolCalls[0]).toMatchObject({ id: 'tu', arguments: { weight_kg: 70 } });
   });
   it('Gemini: key travels in a header, never in the URL; thought parts are hidden; signature is kept', async () => {
-    const f = stub(okJson({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'thinking', thought: true }, { text: 'Hello' }, { functionCall: { name: 'log_weight', args: { weight_kg: 70 } }, thoughtSignature: 'S1' }] } }] }));
+    const response = okJson({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'thinking', thought: true }, { text: 'Hello' }, { functionCall: { name: 'log_weight', args: { weight_kg: 70 } }, thoughtSignature: 'S1' }] } }] });
+    response.headers.set(PROXY_MARK, '1');
+    const f = stub(response);
     const out = await createAdapter({ providerId: 'gemini', baseUrl: '' }, KEY).generate(input({ model: 'models/some-model' }));
-    const s = sent(f);
-    expect(s.url).toBe('https://generativelanguage.googleapis.com/v1beta/models/some-model:generateContent');
-    expect(s.url).not.toContain(KEY);
-    expect(s.headers['x-goog-api-key']).toBe(KEY);
+    const [url, init] = f.mock.calls.at(-1) as unknown as [string, RequestInit];
+    const s = { url, headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) as Record<string, unknown> };
+    expect(s.url).toBe(LLM_PROXY_PATH);
+    expect(s.body.url).toBe('https://generativelanguage.googleapis.com/v1beta/models/some-model:generateContent');
+    expect(s.body.url).not.toContain(KEY);
+    expect(s.body.headers).toMatchObject({ 'x-goog-api-key': KEY });
+    expect(s.body.method).toBe('POST');
     expect(out.text).toBe('Hello');
     expect(out.toolCalls[0]!.providerMeta).toEqual({ thoughtSignature: 'S1' });
+  });
+
+  it('rejects an NVIDIA key or model before sending anything to Gemini', async () => {
+    const f = vi.fn();
+    vi.stubGlobal('fetch', f);
+    expect(() => createAdapter({ providerId: 'gemini', baseUrl: '' }, 'nvapi-not-a-real-key')).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+    await expect(createAdapter({ providerId: 'gemini', baseUrl: '' }, 'AIza-fake-key-for-tests').generate(input({ model: 'nvidia/some-model' }))).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(f).not.toHaveBeenCalled();
   });
 
   it.each([

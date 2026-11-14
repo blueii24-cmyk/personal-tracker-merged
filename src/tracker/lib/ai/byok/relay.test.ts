@@ -314,3 +314,104 @@ describe('same-origin LLM proxy', () => {
     expect(JSON.parse(String(init.body)).headers.authorization).toBe('Bearer test-key');
   });
 });
+
+describe('Gemini JSON relay', () => {
+  const base = 'https://generativelanguage.googleapis.com';
+  const modelUrl = `${base}/v1beta/models?pageSize=1000`;
+  const chatUrl = `${base}/v1beta/models/gemini-2.5-flash:generateContent`;
+  it('sends only the Google key to Google for discovery and chat', async () => {
+    const upstream = vi.fn(async () => new Response('{"models":[]}'));
+    const handler = createLlmProxyHandler(upstream as unknown as typeof fetch);
+    const headers = { 'x-goog-api-key': 'AIza-fake-key-for-tests', authorization: 'Bearer do-not-forward', cookie: 'no' };
+    expect((await handler(envelope({ url: modelUrl, method: 'GET', headers }))).status).toBe(200);
+    expect((await handler(envelope({ url: chatUrl, method: 'POST', headers, body: { contents: [] } }))).status).toBe(200);
+    const [url, first] = upstream.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(modelUrl);
+    expect(url).not.toContain('fake-key');
+    expect(first.headers).toEqual({ accept: 'application/json, text/event-stream', 'x-goog-api-key': 'AIza-fake-key-for-tests' });
+    const [, second] = upstream.mock.calls[1] as unknown as [string, RequestInit];
+    expect(second.headers).toEqual({ accept: 'application/json, text/event-stream', 'x-goog-api-key': 'AIza-fake-key-for-tests', 'content-type': 'application/json' });
+    expect(second.redirect).toBe('manual');
+  });
+  it.each([
+    [`${base}/v1beta/models?key=secret`, 'GET'],
+    [`${base}/v1beta/models?pageSize=1000&pageSize=1000`, 'GET'],
+    [`${base}/v1beta/models/gemini:generateContent?key=secret`, 'POST'],
+    [`${base}/v1beta/models/gemini%2Felse:generateContent`, 'POST'],
+    [`${base}/v1beta/models/gemini:streamGenerateContent`, 'POST'],
+    [`${base}.evil.example/v1beta/models`, 'GET'],
+  ])('rejects disallowed target %s', async (url, method) => {
+    const upstream = vi.fn();
+    const res = await createLlmProxyHandler(upstream as unknown as typeof fetch)(envelope({ url, method, headers: { 'x-goog-api-key': 'fake-key' }, ...(method === 'POST' ? { body: {} } : {}) }));
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+  it('does not forward a Google key to another provider or through the legacy route', async () => {
+    const upstream = vi.fn(async () => new Response('{}'));
+    const handler = createLlmProxyHandler(upstream as unknown as typeof fetch);
+    await handler(envelope({ url: 'https://openrouter.ai/api/v1/models', method: 'GET', headers: { 'x-goog-api-key': 'fake-key' } }));
+    expect((upstream.mock.calls[0] as unknown as [string, RequestInit])[1].headers).toEqual({ accept: 'application/json, text/event-stream' });
+    const legacy = await createProxyHandler(upstream as unknown as typeof fetch)(request({ target: `${base}/v1/models` }));
+    expect(legacy.status).toBe(400);
+  });
+  it('uses the relay for browser Gemini and the native client on Android', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { headers: { [PROXY_MARK]: '1' } }));
+    const init = { method: 'POST' as const, headers: { 'x-goog-api-key': 'fake-key' }, body: '{"contents":[]}', signal: signal() };
+    const web = await aiFetch(chatUrl, init, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(web.viaRelay).toBe(true);
+    const call = fetchImpl.mock.calls.at(-1) as unknown as [string, RequestInit];
+    expect(JSON.parse(String(call[1].body))).toMatchObject({ url: chatUrl, method: 'POST', headers: { 'x-goog-api-key': 'fake-key' } });
+    const nativeRequest = vi.fn(async () => ({ status: 200, data: {}, headers: {} }));
+    await aiFetch(chatUrl, init, { native: true, nativeRequest });
+    expect(nativeRequest).toHaveBeenCalledWith(expect.objectContaining({ url: chatUrl, method: 'POST', headers: { 'x-goog-api-key': 'fake-key' } }));
+  });
+  it('never retries a Gemini chat POST after a missing relay', async () => {
+    const fetchImpl = vi.fn(async () => new Response('missing', { status: 404 }));
+    await aiFetch(chatUrl, { method: 'POST', headers: { 'x-goog-api-key': 'fake-key' }, body: '{}', signal: signal() }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+  it('allows static web copies to use direct Gemini after discovery confirms it works', async () => {
+    const fetchImpl = vi.fn(async (url: string) => url === LLM_PROXY_PATH ? new Response('missing', { status: 404 }) : new Response('{"models":[]}'));
+    const discovery = await aiFetch(modelUrl, { method: 'GET', headers: { 'x-goog-api-key': 'fake-key' }, signal: signal() }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(discovery.viaRelay).toBe(false);
+    const chat = await aiFetch(chatUrl, { method: 'POST', headers: { 'x-goog-api-key': 'fake-key' }, body: '{}', signal: signal() }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(chat.viaRelay).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('standalone Gemini without prior discovery', () => {
+  it('probes without credentials, then sends the chat only once directly when the route is absent', async () => {
+    vi.resetModules();
+    const { aiFetch: freshFetch } = await import('./transport');
+    const fetchImpl = vi.fn(async (url: string) => url === LLM_PROXY_PATH ? new Response('missing', { status: 404 }) : new Response('{"candidates":[]}'));
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    const response = await freshFetch(url, { method: 'POST', headers: { 'x-goog-api-key': 'fake-key' }, body: '{}', signal: signal() }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(response.viaRelay).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const probe = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(probe[0]).toBe(LLM_PROXY_PATH);
+    expect(probe[1].method).toBe('GET');
+    expect(probe[1].headers).toBeUndefined();
+    expect(probe[1].body).toBeUndefined();
+    expect((fetchImpl.mock.calls[1] as unknown as [string, RequestInit])[0]).toBe(url);
+  });
+});
+
+describe('Gemini direct discovery failures', () => {
+  it('does not cache a failed direct discovery as a working transport', async () => {
+    vi.resetModules();
+    const { aiFetch: freshFetch } = await import('./transport');
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      if (url !== LLM_PROXY_PATH) return new Response('bad key', { status: 403 });
+      if (init.method === 'GET') return new Response(null, { status: 204, headers: { [PROXY_MARK]: '1' } });
+      return new Response('relay failed', { status: 502, headers: { [PROXY_MARK]: '1', [PROXY_ERROR]: '1' } });
+    });
+    const init = { headers: { 'x-goog-api-key': 'fake-key' }, signal: signal() };
+    await freshFetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { ...init, method: 'GET' }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await freshFetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', { ...init, method: 'POST', body: '{}' }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result.viaRelay).toBe(true);
+    const last = fetchImpl.mock.calls.at(-1) as unknown as [string, RequestInit];
+    expect(last[0]).toBe(LLM_PROXY_PATH);
+  });
+});

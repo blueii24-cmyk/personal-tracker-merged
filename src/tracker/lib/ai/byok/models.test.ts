@@ -151,10 +151,12 @@ describe('fetchModels', () => {
     expect((a.mock.calls[0] as unknown as [string])[0]).toBe('https://api.anthropic.com/v1/models?limit=1000');
     expect(((a.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>)['x-api-key']).toBe('sk-ant-secret-123456');
 
-    const g = respond(200, { models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] });
+    const g = vi.fn(async () => new Response(JSON.stringify({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] }), { status: 200, headers: { [PROXY_MARK]: '1' } }));
     vi.stubGlobal('fetch', g);
     await fetchModels({ providerId: 'gemini', baseUrl: '' }, 'AIzaSecret123456');
-    expect((g.mock.calls[0] as unknown as [string])[0]).toContain('/v1beta/models?pageSize=1000');
+    const [gUrl, gInit] = g.mock.calls[0] as unknown as [string, RequestInit];
+    expect(gUrl).toBe(LLM_PROXY_PATH);
+    expect(JSON.parse(String(gInit.body))).toMatchObject({ url: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', method: 'GET', headers: { 'x-goog-api-key': 'AIzaSecret123456' } });
 
     const c = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'llama3.1:70b' }] }), {
       status: 200,
@@ -169,6 +171,12 @@ describe('fetchModels', () => {
     expect(payload.method).toBe('GET');
     expect(payload.headers.authorization).toBe('Bearer or-secret-123456');
     expect(relayUrl).not.toContain('or-secret');
+  });
+  it('does not send an NVIDIA key to Gemini', async () => {
+    const f = vi.fn();
+    vi.stubGlobal('fetch', f);
+    await expect(fetchModels({ providerId: 'gemini', baseUrl: '' }, 'nvapi-not-a-real-key')).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(f).not.toHaveBeenCalled();
   });
   it('explains a rejected key without echoing it', async () => {
     vi.stubGlobal('fetch', respond(401, { error: { message: 'Incorrect API key provided: sk-secret-key-123456' } }));

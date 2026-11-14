@@ -1,7 +1,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { isNative } from '@/tracker/lib/platform/native';
 import { isBridgedHost, PROXY_ERROR, PROXY_MARK } from './bridged-hosts';
-import { llmFetch } from './llm-fetch';
+import { LLM_PROXY_PATH, llmFetch } from './llm-fetch';
 
 export interface AiFetchInit {
   method: 'GET' | 'POST';
@@ -28,6 +28,11 @@ interface TransportDeps {
     connectTimeout?: number;
   }) => Promise<NativeResponse>;
 }
+
+// Choose direct Gemini for this page session if a static copy has no relay.
+// Never retry a chat POST.
+let geminiDirectPreferred = false;
+let geminiRelayKnown = false;
 
 const abortError = () => new DOMException('The operation was aborted.', 'AbortError');
 
@@ -94,17 +99,32 @@ export async function aiFetch(
   }
 
   const target = new URL(url);
+  const isGemini = target.hostname === 'generativelanguage.googleapis.com';
+  if (isGemini && init.method === 'POST' && !geminiDirectPreferred && !geminiRelayKnown) {
+    // Probe only the app's own route, with no key or body, before sending a
+    // chat request. A missing static-export route can still use direct Gemini.
+    // Do not treat a transient failure as proof that the route is absent.
+    const probe = await resolved.fetchImpl(LLM_PROXY_PATH, { method: 'GET', signal: init.signal, credentials: 'same-origin', cache: 'no-store', referrerPolicy: 'no-referrer' });
+    if (probe.headers.get(PROXY_MARK) === '1') geminiRelayKnown = true;
+    else if (probe.ok || probe.status === 404 || probe.status === 405) geminiDirectPreferred = true;
+  }
+  if (isGemini && geminiDirectPreferred) {
+    return { res: await resolved.fetchImpl(url, { method: init.method, headers: init.headers, ...(init.body === undefined ? {} : { body: init.body }), signal: init.signal, credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', redirect: 'error' }), viaRelay: false };
+  }
   // Only model discovery is safe to retry automatically. Never replay a chat POST:
   // the first request may already have been processed even if its response was lost.
-  const canTryDirect = init.method === 'GET' && target.hostname === 'openrouter.ai' &&
-    target.pathname === '/api/v1/models' && !target.port && !target.username && !target.password && !target.hash;
-  const directModels = async () => ({
-    res: await resolved.fetchImpl(url, {
+  const canTryDirect = init.method === 'GET' &&
+    ((target.hostname === 'openrouter.ai' && target.pathname === '/api/v1/models') ||
+     (isGemini && target.pathname === '/v1beta/models')) &&
+    !target.port && !target.username && !target.password && !target.hash;
+  const directModels = async () => {
+    const res = await resolved.fetchImpl(url, {
       method: 'GET', headers: init.headers, signal: init.signal,
       credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer', redirect: 'error',
-    }),
-    viaRelay: false,
-  });
+    });
+    if (isGemini && res.ok) geminiDirectPreferred = true;
+    return { res, viaRelay: false };
+  };
   let response: Response;
   try {
     response = await llmFetch(url, {
@@ -118,11 +138,12 @@ export async function aiFetch(
     throw error;
   }
   // A missing deployment route or a relay-side upstream failure is not a provider
-  // authentication response. Direct discovery can still work if OpenRouter permits CORS.
+  // authentication response. Direct discovery can still work if the provider permits CORS.
   if (canTryDirect && !init.signal.aborted &&
       (!response.headers.has(PROXY_MARK) || (response.status >= 500 && response.headers.get(PROXY_ERROR) === '1'))) {
     return directModels();
   }
+  if (isGemini && response.headers.get(PROXY_MARK) === '1' && response.headers.get(PROXY_ERROR) !== '1') geminiRelayKnown = true;
   return { res: response, viaRelay: true };
 }
 

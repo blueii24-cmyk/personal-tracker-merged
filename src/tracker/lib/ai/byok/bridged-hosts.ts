@@ -5,6 +5,7 @@
 export const BRIDGED_HOSTS: ReadonlySet<string> = new Set([
   'integrate.api.nvidia.com',
   'openrouter.ai',
+  'generativelanguage.googleapis.com',
 ]);
 export const BRIDGED_PATHS: ReadonlySet<string> = new Set([
   '/v1/models',
