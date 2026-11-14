@@ -32,6 +32,7 @@ export function toOpenAiMessages(system: string, messages: CanonicalMessage[]): 
 
 interface OaResponse {
   id?: string;
+  model?: string;
   choices?: Array<{
     finish_reason?: string | null;
     message?: { content?: string | Array<{ type?: string; text?: string }> | null; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: unknown } }> };
@@ -88,6 +89,8 @@ export class OpenAiAdapter implements AiProviderAdapter {
       finishReason: toolCalls.length ? 'tool_calls' : reason === 'length' ? 'length' : reason === 'content_filter' ? 'provider_error' : 'stop',
       usage: { inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens },
       providerRequestId: requestId ?? data.id,
+      // Coarena may substitute a different model; report the one that answered.
+      ...(new URL(this.baseUrl).hostname === 'coarena.ai' && typeof data.model === 'string' && data.model.trim() ? { model: data.model.trim() } : {}),
     };
   }
 }

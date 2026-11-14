@@ -49,6 +49,7 @@ export interface ServerPreset {
   note?: string;
 }
 export const SERVER_PRESETS: ServerPreset[] = [
+  { label: 'Coarena', baseUrl: 'https://coarena.ai/api/v1', note: "Web requests use this app's relay; Android uses its native client." },
   { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', note: "Hosts NVIDIA Nemotron, Claude, GPT, Gemini, Llama and more behind one key. Web requests use this app's relay; Android uses its native client." },
   { label: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
   { label: 'Together', baseUrl: 'https://api.together.xyz/v1' },
@@ -72,6 +73,15 @@ export function baseUrlError(raw: string): string | null {
   if (url.protocol === 'https:') return null;
   if (url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname)) return null;
   return 'Use an https:// address. Plain http is only allowed for a server on this device (localhost).';
+}
+
+/** Saved keys belong to a provider and, for custom servers, a specific endpoint. */
+export function sameKeyDestination(a: Pick<ByokConfig, 'providerId' | 'baseUrl'>, b: Pick<ByokConfig, 'providerId' | 'baseUrl'>): boolean {
+  return a.providerId === b.providerId && (a.providerId !== 'openai-compatible' || normalizeBaseUrl(a.baseUrl) === normalizeBaseUrl(b.baseUrl));
+}
+
+export function isCoarenaServer(raw: string): boolean {
+  try { return new URL(raw.trim()).hostname === 'coarena.ai'; } catch { return false; }
 }
 
 /** Reject only an unmistakable NVIDIA key on Google's native endpoint. Do not

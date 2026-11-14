@@ -415,3 +415,61 @@ describe('Gemini direct discovery failures', () => {
     expect(last[0]).toBe(LLM_PROXY_PATH);
   });
 });
+
+describe('Coarena integration and relay', () => {
+  const models = 'https://coarena.ai/api/v1/models';
+  const chat = 'https://coarena.ai/api/v1/chat/completions';
+  it('forwards discovery and chat through the restricted JSON relay with bearer auth', async () => {
+    const upstream = vi.fn(async () => new Response('{"data":[{"id":"sample-model"}]}'));
+    const handler = createLlmProxyHandler(upstream as unknown as typeof fetch);
+    const headers = { authorization: 'Bearer coa_fake-key-for-tests', cookie: 'do-not-forward', 'x-goog-api-key': 'do-not-forward' };
+    expect((await handler(envelope({ url: models, method: 'GET', headers }))).status).toBe(200);
+    expect((await handler(envelope({ url: chat, method: 'POST', headers, body: { model: 'sample-model', messages: [] } }))).status).toBe(200);
+    const first = upstream.mock.calls[0] as unknown as [string, RequestInit];
+    const second = upstream.mock.calls[1] as unknown as [string, RequestInit];
+    expect(first[0]).toBe(models);
+    expect(first[1].headers).toEqual({ accept: 'application/json, text/event-stream', authorization: 'Bearer coa_fake-key-for-tests' });
+    expect(second[0]).toBe(chat);
+    expect(second[1]).toMatchObject({ method: 'POST', redirect: 'manual', body: '{"model":"sample-model","messages":[]}' });
+    expect(second[1].headers).toEqual({ accept: 'application/json, text/event-stream', authorization: 'Bearer coa_fake-key-for-tests', 'content-type': 'application/json' });
+  });
+  it.each([
+    { url: 'https://coarena.ai.evil.example/api/v1/models' },
+    { url: 'https://coarena.ai/api/v1/keys' },
+    { url: 'https://coarena.ai/api/v1/requests' },
+    { url: 'https://coarena.ai/api/v1/models?key=secret' },
+    { url: models, method: 'POST', body: {} },
+    { url: chat, method: 'GET' },
+    { url: 'https://u:p@coarena.ai/api/v1/models' },
+    { url: 'https://coarena.ai:8443/api/v1/models' },
+  ])('rejects unapproved Coarena request %o', async (payload) => {
+    const upstream = vi.fn();
+    const result = await createLlmProxyHandler(upstream as unknown as typeof fetch)(envelope(payload));
+    expect(result.status).toBeGreaterThanOrEqual(400);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+  it('blocks redirects and excludes the older generic relay', async () => {
+    const upstream = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://evil.example/' } }));
+    const response = await createLlmProxyHandler(upstream as unknown as typeof fetch)(envelope({ url: models }));
+    expect(response.status).toBe(502);
+    expect(response.headers.get('location')).toBeNull();
+    expect((await createProxyHandler(upstream as unknown as typeof fetch)(request({ target: models }))).status).toBe(400);
+    expect(upstream).toHaveBeenCalledOnce();
+  });
+  it('routes web calls through the relay without replaying chat and Android through native HTTP', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"error":"missing"}', { status: 404 }));
+    const payload = { method: 'POST' as const, headers: { authorization: 'Bearer coa_fake-key-for-tests' }, body: '{}', signal: signal() };
+    expect((await aiFetch(chat, payload, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch })).viaRelay).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).toBe(LLM_PROXY_PATH);
+    const nativeRequest = vi.fn(async () => ({ status: 200, data: {}, headers: {} }));
+    await aiFetch(models, { method: 'GET', headers: payload.headers, signal: signal() }, { native: true, nativeRequest });
+    await aiFetch(chat, payload, { native: true, nativeRequest });
+    expect(nativeRequest).toHaveBeenCalledTimes(2);
+    expect(nativeRequest).toHaveBeenLastCalledWith(expect.objectContaining({ url: chat, method: 'POST', headers: payload.headers }));
+  });
+  it('does not mistake a late Coarena error delivered with HTTP 200 for a success', async () => {
+    vi.stubGlobal('fetch', async () => new Response('{"error":{"message":"secret coa_fake-key-for-tests"}}', { status: 200, headers: { [PROXY_MARK]: '1' } }));
+    await expect(getJson({ url: models, headers: { authorization: 'Bearer coa_fake-key-for-tests' }, apiKey: 'coa_fake-key-for-tests', providerLabel: 'Your server' })).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE', diagnostic: 'PROVIDER_ERROR' });
+  });
+});

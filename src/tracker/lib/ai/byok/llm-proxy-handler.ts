@@ -5,6 +5,7 @@ const UPSTREAM_TIMEOUT_MS = 55_000;
 const ALLOWED_PATHS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'integrate.api.nvidia.com': { '/v1/models': 'GET', '/v1/chat/completions': 'POST' },
   'openrouter.ai': { '/api/v1/models': 'GET', '/api/v1/chat/completions': 'POST' },
+  'coarena.ai': { '/api/v1/models': 'GET', '/api/v1/chat/completions': 'POST' },
 };
 
 const responseHeaders = (contentType = 'application/json') => ({
@@ -78,6 +79,7 @@ export function createLlmProxyHandler(fetchImpl: typeof fetch = fetch) {
       return reject(400, 'Only plain https addresses are allowed.');
     }
     const isGemini = target.hostname === 'generativelanguage.googleapis.com';
+    if (target.hostname === 'coarena.ai' && target.search) return reject(400, 'Unsupported Coarena query parameters.');
     const googleModels = isGemini && target.pathname === '/v1beta/models';
     const googleChat = isGemini && /^\/v1beta\/models\/[a-zA-Z0-9._-]{1,120}:generateContent$/.test(target.pathname);
     if (isGemini) {

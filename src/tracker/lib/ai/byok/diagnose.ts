@@ -18,7 +18,7 @@ export function sanitizeDetail(text: string, apiKey = ''): string {
   let out = text
     .replace(/<[^>]*>/g, ' ')
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, 'Bearer [key]')
-    .replace(/\b(sk-[A-Za-z0-9_-]{6,}|AIza[0-9A-Za-z_-]{10,}|gsk_[A-Za-z0-9]{10,}|xai-[A-Za-z0-9]{10,})/g, '[key]');
+    .replace(/\b(sk-[A-Za-z0-9_-]{6,}|AIza[0-9A-Za-z_-]{10,}|gsk_[A-Za-z0-9]{10,}|coa_[A-Za-z0-9_-]{10,}|xai-[A-Za-z0-9]{10,})/g, '[key]');
   const key = apiKey.trim();
   if (key.length >= 8) {
     out = out.split(key).join('[key]');
