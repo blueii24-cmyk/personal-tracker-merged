@@ -32,8 +32,8 @@ export function createProxyHandler(fetchImpl: typeof fetch = fetch) {
     if (target.protocol !== 'https:' || target.username || target.password || target.port) {
       return reply(400, 'Only plain https addresses are allowed.');
     }
-    // Gemini uses only the JSON relay; do not expose it through this older generic relay.
-    if (!BRIDGED_HOSTS.has(target.hostname) || target.hostname === 'generativelanguage.googleapis.com') return reply(400, 'That host is not on the relay allow-list.');
+    // Gemini and Coarena use only the JSON relay, with stricter endpoint rules.
+    if (!BRIDGED_HOSTS.has(target.hostname) || (target.hostname === 'generativelanguage.googleapis.com' || target.hostname === 'coarena.ai')) return reply(400, 'That host is not on the relay allow-list.');
     if (!BRIDGED_PATHS.has(target.pathname)) return reply(400, 'That path is not allowed.');
 
     const headers: Record<string, string> = { accept: 'application/json' };

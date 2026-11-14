@@ -6,7 +6,7 @@ import type { AiProviderAdapter, CanonicalMessage, ProviderGenerateInput, Provid
 import { toAnthropicMessages } from './anthropic';
 import { PROXY_MARK } from './bridged-hosts';
 import { LLM_PROXY_PATH } from './llm-fetch';
-import { baseUrlError, createAdapter, DEFAULT_CONFIG, maskKey, type ByokConfig } from './config';
+import { baseUrlError, createAdapter, DEFAULT_CONFIG, maskKey, sameKeyDestination, type ByokConfig } from './config';
 import { sanitizeSchema, toGeminiContents } from './gemini';
 import { redactKey } from './http';
 import { normalizeBaseUrl, toOpenAiMessages } from './openai';
@@ -298,6 +298,15 @@ describe('provider message mapping', () => {
   });
 });
 
+describe('saved key destination', () => {
+  const nvidia = { providerId: 'openai-compatible' as const, baseUrl: 'https://integrate.api.nvidia.com/v1' };
+  it('allows normalized equivalent server URLs but not a different provider or server', () => {
+    expect(sameKeyDestination(nvidia, { ...nvidia, baseUrl: `${nvidia.baseUrl}/chat/completions/` })).toBe(true);
+    expect(sameKeyDestination(nvidia, { ...nvidia, baseUrl: 'https://coarena.ai/api/v1' })).toBe(false);
+    expect(sameKeyDestination(nvidia, { providerId: 'gemini', baseUrl: nvidia.baseUrl })).toBe(false);
+  });
+});
+
 describe('http, keys and addresses', () => {
   const okJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const stub = (res: Response | Error) => {
@@ -339,6 +348,18 @@ describe('http, keys and addresses', () => {
     expect(s.body.headers).toMatchObject({ authorization: `Bearer ${KEY}` });
     expect(s.body.body).toMatchObject({ max_tokens: 50 });
     expect(s.body.body).not.toHaveProperty('tools');
+  });
+  it('Coarena: sends OpenAI-compatible tools through the relay and reports the model that actually answered', async () => {
+    const response = okJson({ model: 'routed-model', choices: [{ finish_reason: 'tool_calls', message: { content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'log_weight', arguments: '{"weight_kg":71}' } }] } }] });
+    response.headers.set(PROXY_MARK, '1');
+    const f = stub(response);
+    const out = await createAdapter({ providerId: 'openai-compatible', baseUrl: 'https://coarena.ai/api/v1' }, 'coa_fake-key-for-tests').generate(input({ model: 'sample-model' }));
+    const s = sent(f);
+    expect(s.url).toBe(LLM_PROXY_PATH);
+    expect(s.body).toMatchObject({ url: 'https://coarena.ai/api/v1/chat/completions', method: 'POST', headers: { authorization: 'Bearer coa_fake-key-for-tests' }, body: { model: 'sample-model', tool_choice: 'auto' } });
+    expect((s.body.body as { tools: unknown[] }).tools.length).toBe(AI_TOOLS.length);
+    expect(out.model).toBe('routed-model');
+    expect(out.toolCalls).toEqual([{ id: 'call-1', name: 'log_weight', arguments: { weight_kg: 71 } }]);
   });
   it('Anthropic: key and browser-access headers, system as a top-level field', async () => {
     const f = stub(okJson({ stop_reason: 'tool_use', content: [{ type: 'text', text: 'ok' }, { type: 'tool_use', id: 'tu', name: 'log_weight', input: { weight_kg: 70 } }] }));

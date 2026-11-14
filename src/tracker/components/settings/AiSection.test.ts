@@ -38,3 +38,30 @@ describe('provider switching', () => {
     expect(mock.save).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'gemini', model: 'gemini-2.5-flash' }), 'AIza-fake-key-for-tests');
   });
 });
+
+describe('Coarena server preset', () => {
+  it('warns about Coarena privacy and never reuses another server’s saved or unsaved key', async () => {
+    render(createElement(MemoryRouter, null, createElement(AiSection)));
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'unsaved-nvidia-key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Coarena' }));
+    expect((screen.getByLabelText('Server address') as HTMLInputElement).value).toBe('https://coarena.ai/api/v1');
+    expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('');
+    expect(screen.getByText(/Coarena says it permanently stores prompts and replies/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'gemini' } });
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'openai-compatible' } });
+    expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('');
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    expect(mock.fetchModels).not.toHaveBeenCalled();
+    fireEvent.submit(screen.getByRole('form', { name: 'Your AI model' }));
+    expect(mock.save).not.toHaveBeenCalled();
+    expect(screen.getByText('Paste your API key.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'coa_fake-key-for-tests' } });
+    await waitFor(() => expect(mock.fetchModels).toHaveBeenCalledWith({ providerId: 'openai-compatible', baseUrl: 'https://coarena.ai/api/v1' }, 'coa_fake-key-for-tests', expect.any(AbortSignal)), { timeout: 2500 });
+    fireEvent.change(screen.getByLabelText('Server address'), { target: { value: 'https://coarena.ai/api/v1/' } });
+    expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('coa_fake-key-for-tests');
+    fireEvent.change(screen.getByLabelText('Server address'), { target: { value: 'https://another.example/v1' } });
+    expect((screen.getByLabelText('API key') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('');
+  });
+});

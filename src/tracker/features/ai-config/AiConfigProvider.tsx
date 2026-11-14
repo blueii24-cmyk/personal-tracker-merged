@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useToast } from '@/tracker/components/ui/Toast';
 import { chooseModel, fetchModels } from '@/tracker/lib/ai/byok/models';
 import {
-  baseUrlError, clearKey, configError, geminiKeyProblem, initKeyStore, loadConfig, maskKey, onKeyStoreError, readKey, saveConfig, writeKey,
+  baseUrlError, clearKey, configError, geminiKeyProblem, initKeyStore, loadConfig, maskKey, onKeyStoreError, readKey, sameKeyDestination, saveConfig, writeKey,
   type ByokConfig,
 } from '@/tracker/lib/ai/byok/config';
 
@@ -80,7 +80,7 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
 
   const save = useCallback((next: ByokConfig, newKey?: string): string | null => {
     const clean: ByokConfig = { ...next, model: next.model.trim(), baseUrl: next.baseUrl.trim(), notes: next.notes.trim() };
-    if (clean.providerId !== configRef.current.providerId && !newKey?.trim()) return 'Enter a key for the selected provider. Your existing key remains saved until you replace it.';
+    if (!sameKeyDestination(clean, configRef.current) && !newKey?.trim()) return 'Enter a key for the selected provider or server. Your existing key remains saved until you replace it.';
     const mismatch = geminiKeyProblem(clean.providerId, newKey?.trim() || readKey());
     if (mismatch) return mismatch;
     if (newKey !== undefined && newKey.trim()) {

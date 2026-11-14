@@ -172,6 +172,15 @@ describe('fetchModels', () => {
     expect(payload.headers.authorization).toBe('Bearer or-secret-123456');
     expect(relayUrl).not.toContain('or-secret');
   });
+  it('discovers Coarena models via its OpenAI-compatible endpoint', async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ object: 'list', data: [{ id: 'sample-model', object: 'model' }] }), { headers: { [PROXY_MARK]: '1' } }));
+    vi.stubGlobal('fetch', f);
+    const listing = await fetchModels({ providerId: 'openai-compatible', baseUrl: 'https://coarena.ai/api/v1' }, 'coa_fake-key-for-tests');
+    const [relay, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(relay).toBe(LLM_PROXY_PATH);
+    expect(JSON.parse(String(init.body))).toMatchObject({ url: 'https://coarena.ai/api/v1/models', method: 'GET', headers: { authorization: 'Bearer coa_fake-key-for-tests' } });
+    expect(listing.models.map((m) => m.id)).toContain('sample-model');
+  });
   it('does not send an NVIDIA key to Gemini', async () => {
     const f = vi.fn();
     vi.stubGlobal('fetch', f);

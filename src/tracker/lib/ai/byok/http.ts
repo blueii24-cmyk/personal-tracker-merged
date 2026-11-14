@@ -120,6 +120,12 @@ export async function postJson<T>(req: JsonRequest): Promise<{ data: T; requestI
     throw new TrackerError('NETWORK', withDiagnostic(message, 'RELAY_ERROR'), { retryable: res.status >= 500, diagnostic: 'RELAY_ERROR', status: res.status });
   }
 
+  // Coarena may begin a long response with HTTP 200 and report a later
+  // upstream failure in the JSON body. Never treat that as a successful turn.
+  if (res.ok && safeHost(req.url) === 'coarena.ai' && parsed && typeof parsed === 'object' && 'error' in parsed && (parsed as { error?: unknown }).error) {
+    throw new TrackerError('PROVIDER_UNAVAILABLE', withDiagnostic('Coarena reported an error after starting its response. Try again or choose another model.', 'PROVIDER_ERROR'), { retryable: true, requestId, diagnostic: 'PROVIDER_ERROR' });
+  }
+
   if (res.ok) {
     if (parsed == null) throw new TrackerError(
         'PROVIDER_UNAVAILABLE',
