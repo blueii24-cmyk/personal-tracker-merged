@@ -15,7 +15,7 @@ import { editContext } from '@/tracker/features/chat/edit-safety';
 import { useTracker } from '@/tracker/features/store/TrackerProvider';
 import { toTrackerError } from '@/tracker/lib/api/errors';
 import { dateKeyInTz, formatRelativeDay } from '@/tracker/lib/formatting/dates';
-import type { ChatSession } from '@/tracker/types/domain';
+import type { ChatMessage as ChatMessageType, ChatSession } from '@/tracker/types/domain';
 import { useAiConfig } from '@/tracker/features/ai-config/AiConfigProvider';
 import { ChatComposer, type ChatComposerHandle } from './ChatComposer';
 import { ChatMessage, ThinkingIndicator } from './ChatMessage';
@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [toDelete, setToDelete] = useState<ChatSession | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [newRequest, setNewRequest] = useState<ChatMessageType | null>(null);
 
   // A prompt handed over from the Overview quick panel is sent once, then cleared from history state.
   const incoming = (location.state as { prompt?: string } | null)?.prompt;
@@ -185,6 +186,7 @@ export default function ChatPage() {
               {chat.messages.map((m) => (
                 <ChatMessage key={m.id} message={m} timezone={tz} busy={chat.sending} onRetry={chat.retry}
                   editing={editingId === m.id} savedActions={m.role === 'user' && m.status === 'complete' && editContext(chat.messages, m.id).savedActions}
+                  onUseAsNewRequest={chat.mode === 'log' ? setNewRequest : undefined}
                   onEdit={setEditingId} onCancelEdit={() => setEditingId(null)}
                   onSaveEdit={(id, text) => { const accepted = chat.edit(id, text); if (accepted) stick.current = true; return accepted; }} />
               ))}
@@ -206,6 +208,22 @@ export default function ChatPage() {
           </p>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={newRequest !== null}
+        title="Send as a new request?"
+        description={<><p>This can create new records. Editing did not change or undo anything already saved; check your existing records first to avoid duplicates.</p><p className="mt-3 whitespace-pre-wrap break-words">{newRequest?.content}</p></>}
+        confirmLabel="Send new request"
+        tone="primary"
+        onConfirm={() => {
+          if (newRequest && newRequest.sessionId === chat.activeSessionId && chat.mode === 'log' && !chat.sending) {
+            stick.current = true;
+            chat.send(newRequest.content);
+          }
+          setNewRequest(null);
+        }}
+        onClose={() => setNewRequest(null)}
+      />
 
       <ConfirmDialog
         open={toDelete !== null}

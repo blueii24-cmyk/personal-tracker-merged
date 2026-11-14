@@ -77,3 +77,33 @@ describe('offline nutrition reference', () => {
     expect((await svc.getChatHistory(second.sessionId)).find((m) => m.id === second.userMessageId)?.content).toBe('30 g');
   });
 });
+
+describe('meal estimates after a read-only edit', () => {
+  it('keeps edits read-only, then permits a separately sent request to save one honest estimate, including on retry', async () => {
+    const svc = new MockTrackerService(() => now);
+    const first = await svc.sendChatMessage({ clientMessageId: 'start-edit-estimate', message: 'Hello' });
+    const inputs: ProviderGenerateInput[] = [];
+    const adapter: AiProviderAdapter = { providerId: 'openai-compatible', async generate(input) {
+      inputs.push(structuredClone(input));
+      const toolResponse = input.messages.at(-1)?.role === 'tool';
+      return toolResponse
+        ? { text: 'Logged one estimated bowl.', toolCalls: [], finishReason: 'stop' }
+        : { text: '', toolCalls: [{ id: 'meal', name: 'log_meal', arguments: { meal_type: 'lunch', notes: 'Assumed one typical bowl (~200 g); nutrition estimated.', items: [{ food_name: 'khichdi', quantity: 200, unit: 'g', calories_kcal: 114 }] } }], finishReason: 'tool_calls' };
+    } };
+    const edited = await runByokChat({ service: svc, config, input: { sessionId: first.sessionId, clientMessageId: 'edit-estimate', editOfMessageId: first.userMessageId, message: 'I ate khichdi for lunch' }, adapter, now: () => now });
+    expect(await svc.getMeals()).toHaveLength(0);
+    expect(edited.assistantMessage).toContain('did not change or create any records');
+    expect(edited.assistantMessage).not.toContain('Nutrition reference candidates');
+    const input = { sessionId: edited.sessionId, clientMessageId: 'separate-estimate', message: 'I ate khichdi for lunch' };
+    const logged = await runByokChat({ service: svc, config, input, adapter, now: () => now });
+    expect(inputs.at(-2)?.system).toContain('reasonable typical portion');
+    expect(inputs.at(-2)?.messages.at(-1)?.content).toContain('identified as an assumption');
+    expect(logged.actions.filter((a) => a.status === 'succeeded')).toHaveLength(1);
+    const meals = await svc.getMeals();
+    expect(meals).toHaveLength(1);
+    expect(meals[0]?.notes).toContain('Assumed one typical bowl');
+    expect(meals[0]?.items[0]).toMatchObject({ caloriesKcal: 114, proteinG: null, isEstimate: true, nutritionSource: 'ai_estimate' });
+    expect((await runByokChat({ service: svc, config, input, adapter, now: () => now })).assistantMessageId).toBe(logged.assistantMessageId);
+    expect(await svc.getMeals()).toHaveLength(1);
+  });
+});

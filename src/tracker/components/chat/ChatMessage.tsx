@@ -19,9 +19,10 @@ interface Props {
   onEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: (id: string, text: string) => boolean;
+  onUseAsNewRequest?: (message: Msg) => void;
 }
 
-export function ChatMessage({ message, timezone, busy, onRetry, editing, savedActions, onEdit, onCancelEdit, onSaveEdit }: Props) {
+export function ChatMessage({ message, timezone, busy, onRetry, editing, savedActions, onEdit, onCancelEdit, onSaveEdit, onUseAsNewRequest }: Props) {
   const [draft, setDraft] = useState(message.content);
   const time = <time dateTime={message.createdAt} className="msg-time text-[11px] text-ink-3">{formatTime(message.createdAt, timezone)}</time>;
 
@@ -63,6 +64,7 @@ export function ChatMessage({ message, timezone, busy, onRetry, editing, savedAc
         ) : (
           <div className="flex items-center gap-2">
             {time}
+            {message.editOfMessageId && message.status === 'complete' && !editing && onUseAsNewRequest && <button type="button" disabled={busy} onClick={() => onUseAsNewRequest(message)} className="inline-flex min-h-11 items-center px-2 text-[13px] font-medium text-primary underline underline-offset-2 disabled:opacity-50">Send as new request</button>}
             {message.status === 'complete' && !editing && <button type="button" disabled={busy} onClick={() => { setDraft(message.content); onEdit(message.id); }} className="inline-flex min-h-11 items-center gap-1.5 px-2 text-[13px] font-medium text-primary underline underline-offset-2 disabled:opacity-50" aria-label="Edit message"><Pencil className="size-3" aria-hidden />Edit</button>}
           </div>
         )}
