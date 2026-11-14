@@ -10,6 +10,7 @@ import { executeTool, isWriteTool, type Invalidation, type ToolOutcome } from '.
 import { editContext, EDIT_NOTICE } from '@/tracker/features/chat/edit-safety';
 import { casualContext } from '../casual-context';
 import { casualSystemPrompt } from '../casual-prompt';
+import { nutritionReference } from '@/tracker/lib/nutrition/lookup';
 
 export const MAX_ROUNDS = 6;
 export const MAX_TOOL_CALLS = 12;
@@ -85,7 +86,11 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   const prompt = edit
     ? `The user edited an earlier message. Original: ${JSON.stringify(edit.original.content)}\nEdited message: ${message}\n${edit.savedActions ? 'The original turn already saved records; do not repeat or undo them.' : 'Earlier saved records are unchanged.'} Regeneration is read-only: do not claim to save or change records.`
     : message;
-  const messages: CanonicalMessage[] = [...historyToCanonical(edit ? edit.prefix : history), { role: 'user', content: prompt }];
+  // A short portion-size follow-up may refer to the immediately preceding user message.
+  const previousUser = [...(edit ? edit.prefix : history)].reverse().find((m) => m.role === 'user')?.content;
+  const followUp = message.length < 80 && /\b\d+(?:\.\d+)?\s*(?:g|grams?|ml|millilit(?:er|re)s?)\b/i.test(message);
+  const reference = mode === 'log' ? nutritionReference(followUp && previousUser ? `${previousUser} ${message}` : message) : '';
+  const messages: CanonicalMessage[] = [...historyToCanonical(edit ? edit.prefix : history), { role: 'user', content: reference ? `${prompt}\n\n${reference}` : prompt }];
 
   const done: Array<AiActionResult & { name: string }> = [];
   const invalidation = new Set<Invalidation>();
@@ -183,6 +188,17 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   // The model may still claim success after a rejected tool call; never display that claim as a receipt.
   if (editWriteBlocked) assistantMessage = 'I could not apply a record change while regenerating this correction.';
   else if (updateDeclined) assistantMessage = 'The proposed record update was not confirmed.';
+
+  // Attribute bundled open data even when a model forgets; candidates may or may not
+  // have been used in its answer. This does not imply that the label was verified.
+  if (reference) {
+    const credits = [
+      reference.includes('openfoodfacts.org/product/') ? 'Open Food Facts (community data): https://world.openfoodfacts.org/' : '',
+      reference.includes('fdc.nal.usda.gov') ? 'USDA FoodData Central: https://fdc.nal.usda.gov/' : '',
+      reference.includes('10.1016/j.cdnut.2024.103790') ? 'Vijayakumar et al.: https://doi.org/10.1016/j.cdnut.2024.103790' : '',
+    ].filter(Boolean);
+    assistantMessage += `\n\nNutrition reference candidates (values may vary): ${credits.join('; ')}.`;
+  }
 
   return service.recordChatExchange({
     sessionId: input.sessionId,
