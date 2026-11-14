@@ -191,7 +191,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
 
   // Attribute bundled open data even when a model forgets; candidates may or may not
   // have been used in its answer. This does not imply that the label was verified.
-  if (reference) {
+  if (reference && !editWriteBlocked) {
     const credits = [
       reference.includes('openfoodfacts.org/product/') ? 'Open Food Facts (community data): https://world.openfoodfacts.org/' : '',
       reference.includes('fdc.nal.usda.gov') ? 'USDA FoodData Central: https://fdc.nal.usda.gov/' : '',

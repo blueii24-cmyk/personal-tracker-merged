@@ -151,19 +151,20 @@ export function ActionConfirmationCard({ action }: { action: AiActionResult }) {
                 <li key={i.id} className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
                   <span className="min-w-0 truncate text-ink">{describeFoodItem(i)}</span>
                   <span className="tnum shrink-0 text-xs text-ink-2">
-                    {i.caloriesKcal == null ? <span className="text-ink-3">no estimate</span> : `~${formatNumber(i.caloriesKcal)} kcal · ${Math.round((i.proteinG ?? 0) * 10) / 10} g`}
+                    {i.caloriesKcal == null ? 'kcal unknown' : `~${formatNumber(i.caloriesKcal)} kcal`} · {i.proteinG == null ? 'protein unknown' : `~${Math.round(i.proteinG * 10) / 10} g protein`}
                   </span>
                 </li>
               ))}
             </ul>
             <div className="tnum flex items-center justify-between border-t border-line py-2 text-sm">
               <span className="flex items-center gap-1.5 text-ink-3">
-                Total <Badge tone="fuel">Estimated</Badge>
+                {totals.unknownCalorieItems || totals.unknownProteinItems ? 'Known total' : 'Total'} {totals.hasEstimates && <Badge tone="fuel">Estimated</Badge>}
               </span>
               <span className="font-semibold text-ink">
-                ~{formatNumber(totals.caloriesKcal)} kcal · ~{Math.round(totals.proteinG * 10) / 10} g protein
+                {totals.unknownCalorieItems === totals.itemCount ? 'kcal unknown' : `~${formatNumber(totals.caloriesKcal)} kcal`} · {totals.unknownProteinItems === totals.itemCount ? 'protein unknown' : `~${Math.round(totals.proteinG * 10) / 10} g protein`}
               </span>
             </div>
+            {meal.notes && <p className="pb-1 text-xs text-ink-2">{meal.notes}</p>}
             <p className="pb-1 text-xs text-ink-3">
               {formatRelativeDay(dateKeyInTz(meal.eatenAt, tz), t.today)}, {formatTime(meal.eatenAt, tz)}
             </p>
