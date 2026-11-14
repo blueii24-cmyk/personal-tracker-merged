@@ -4,7 +4,8 @@ import { TrackerError } from '@/tracker/lib/api/errors';
 import { AI_TOOLS } from '../tool-schemas';
 import type { AiProviderAdapter, CanonicalMessage, ProviderGenerateInput, ProviderGenerateOutput } from '../provider';
 import { toAnthropicMessages } from './anthropic';
-import { PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
+import { PROXY_MARK } from './bridged-hosts';
+import { LLM_PROXY_PATH } from './llm-fetch';
 import { baseUrlError, createAdapter, DEFAULT_CONFIG, maskKey, type ByokConfig } from './config';
 import { sanitizeSchema, toGeminiContents } from './gemini';
 import { redactKey } from './http';
@@ -331,11 +332,13 @@ describe('http, keys and addresses', () => {
     const f = stub(response);
     await createAdapter({ providerId: 'openai-compatible', baseUrl: 'https://openrouter.ai/api/v1/chat/completions/' }, KEY).generate(input({ tools: [], maxOutputTokens: 50 }));
     const s = sent(f);
-    expect(s.url).toBe(PROXY_PATH);
-    expect(s.headers[PROXY_TARGET_HEADER]).toBe('https://openrouter.ai/api/v1/chat/completions');
-    expect(s.headers.authorization).toBe(`Bearer ${KEY}`);
-    expect(s.body.max_tokens).toBe(50);
-    expect(s.body).not.toHaveProperty('tools');
+    expect(s.url).toBe(LLM_PROXY_PATH);
+    expect(s.headers['content-type']).toBe('application/json');
+    expect(s.body.url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(s.body.method).toBe('POST');
+    expect(s.body.headers).toMatchObject({ authorization: `Bearer ${KEY}` });
+    expect(s.body.body).toMatchObject({ max_tokens: 50 });
+    expect(s.body.body).not.toHaveProperty('tools');
   });
   it('Anthropic: key and browser-access headers, system as a top-level field', async () => {
     const f = stub(okJson({ stop_reason: 'tool_use', content: [{ type: 'text', text: 'ok' }, { type: 'tool_use', id: 'tu', name: 'log_weight', input: { weight_kg: 70 } }] }));

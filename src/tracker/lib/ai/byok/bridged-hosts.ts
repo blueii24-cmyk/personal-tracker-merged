@@ -12,7 +12,6 @@ export const BRIDGED_PATHS: ReadonlySet<string> = new Set([
   '/api/v1/models',
   '/api/v1/chat/completions',
 ]);
-export const PROXY_PATH = '/api/ai-proxy';
 export const PROXY_TARGET_HEADER = 'x-proxy-target';
 export const PROXY_MARK = 'x-ai-proxy';
 export const PROXY_ERROR = 'x-ai-proxy-error';
