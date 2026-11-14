@@ -94,6 +94,22 @@ describe('AI transport', () => {
     }));
   });
 
+  it('routes OpenRouter chat POST through the JSON relay without a direct retry', async () => {
+    const url = 'https://openrouter.ai/api/v1/chat/completions';
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(async () => new Response('{}', { headers: { [PROXY_MARK]: '1' } }));
+    const result = await aiFetch(url, {
+      method: 'POST', headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'test', messages: [] }), signal: controller.signal,
+    }, { native: false, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(result.viaRelay).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl).toHaveBeenCalledWith(LLM_PROXY_PATH, expect.objectContaining({
+      method: 'POST', signal: controller.signal, credentials: 'same-origin',
+      body: JSON.stringify({ url, method: 'POST', headers: { authorization: 'Bearer test-key', 'content-type': 'application/json' }, body: { model: 'test', messages: [] } }),
+    }));
+  });
+
   it.each(['network', 'missing relay', 'relay upstream failure'])('falls back to direct OpenRouter discovery on %s', async (reason) => {
     const url = 'https://openrouter.ai/api/v1/models';
     const fetchImpl = vi.fn(async (request: string) => {
@@ -199,6 +215,26 @@ describe('same-origin LLM proxy', () => {
     const [url, options] = upstream.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(modelsUrl);
     expect(options).toMatchObject({ method: 'GET', redirect: 'manual', headers: { authorization: 'Bearer test-key' } });
+  });
+
+  it('enforces the JSON relay limits and redirect policy for OpenRouter chat', async () => {
+    const url = 'https://openrouter.ai/api/v1/chat/completions';
+    const upstream = vi.fn(async () => new Response(null, { status: 302, headers: { location: 'https://evil.example' } }));
+    const handler = createLlmProxyHandler(upstream as unknown as typeof fetch);
+    const relayFetch = vi.fn(async (_url: string, init: RequestInit) => handler(new Request('http://localhost:3000/api/llm-proxy', {
+      ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), host: 'localhost:3000', origin: 'http://localhost:3000' },
+    })));
+    const send = (body: object) => aiFetch(url, { method: 'POST', headers: { authorization: 'Bearer test-key' }, body: JSON.stringify(body), signal: signal() }, { native: false, fetchImpl: relayFetch as unknown as typeof fetch });
+    const oversized = await send({ model: 'test', padding: 'x'.repeat(1_000_001) });
+    expect(oversized.res.status).toBe(413);
+    expect(upstream).not.toHaveBeenCalled();
+    const redirect = await send({ model: 'test' });
+    expect(redirect.res.status).toBe(502);
+    expect(redirect.res.headers.get('location')).toBeNull();
+    expect(upstream).toHaveBeenCalledOnce();
+    const [forwarded, options] = upstream.mock.calls[0] as unknown as [string, RequestInit];
+    expect(forwarded).toBe(url);
+    expect(options).toMatchObject({ method: 'POST', redirect: 'manual', body: '{"model":"test"}', headers: { authorization: 'Bearer test-key' } });
   });
 
   it('passes chat JSON and streams upstream chunks without exposing arbitrary request headers', async () => {

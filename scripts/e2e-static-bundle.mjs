@@ -2,7 +2,8 @@ import { chromium } from 'playwright';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-const ROOT='/app/out';
+const ROOT=path.resolve(import.meta.dirname,'../out');
+fs.mkdirSync('/tmp/pw',{recursive:true});
 const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.woff2':'font/woff2','.txt':'text/plain','.json':'application/json'};
 const server=http.createServer((req,res)=>{ let p=decodeURIComponent(req.url.split('?')[0]); let f=path.join(ROOT,p); if(!path.extname(p)||!fs.existsSync(f)||fs.statSync(f).isDirectory()){ f=path.join(ROOT,'index.html'); } res.setHeader('content-type',mime[path.extname(f)]||'application/octet-stream'); fs.createReadStream(f).pipe(res); }).listen(4177);
 const results=[]; const ok=(n,c,d='')=>{results.push([c?'PASS':'FAIL',n,d]); };
@@ -14,18 +15,34 @@ const B='http://localhost:4177';
 // 1 first launch + every route as a deep link (Capacitor serves index.html for these)
 await page.goto(B+'/'); await page.waitForFunction(()=>document.querySelector('main')&&document.querySelector('main').innerText.length>50,{timeout:15000});
 ok('first launch renders overview', (await page.locator('main').innerText()).length>50);
-ok('seeded on first launch and persisted', await page.evaluate(()=>!!localStorage.getItem('pt.demo.db.v1')));
+ok('first launch persists an empty database', await page.evaluate(()=>{const raw=localStorage.getItem('pt.demo.db.v1'); if(!raw) return false; const d=JSON.parse(raw); return d.meals.length===0&&d.transactions.length===0&&d.weighIns.length===0;}));
 for (const r of ['chat','bulking','budget','history','settings']) { await page.goto(`${B}/${r}`); await page.waitForSelector('main'); await page.waitForTimeout(600); const t=await page.locator('main').innerText(); ok(`route /${r} renders`, t.length>30, t.slice(0,40).replace(/\n/g,' ')); }
 await page.screenshot({path:'/tmp/pw/settings.png'});
+// Create real records through the UI before export, cancellation, erase and restore.
+await page.goto(B+'/bulking');
+await page.getByRole('button',{name:'Log meal',exact:true}).first().click();
+await page.locator('dialog[open]').getByLabel('Food 1',{exact:true}).fill('E2E rice');
+await page.locator('dialog[open]').getByRole('button',{name:'Log meal',exact:true}).click();
+await page.waitForFunction(()=>JSON.parse(localStorage.getItem('pt.demo.db.v1')).meals.length===1);
+await page.locator('dialog[open]').waitFor({state:'hidden'});
+await page.getByLabel('Weight (kg)').fill('70');
+await page.getByRole('button',{name:'Log weight',exact:true}).click();
+await page.waitForFunction(()=>JSON.parse(localStorage.getItem('pt.demo.db.v1')).weighIns.length===1);
+await page.goto(B+'/budget');
+await page.getByRole('button',{name:'Add expense',exact:true}).first().click();
+await page.locator('dialog[open]').getByLabel('Amount (₹)').fill('60');
+await page.locator('dialog[open]').getByLabel('Description').fill('E2E expense');
+await page.locator('dialog[open]').getByRole('button',{name:'Add expense',exact:true}).click();
+await page.waitForFunction(()=>JSON.parse(localStorage.getItem('pt.demo.db.v1')).transactions.length===1);
 // 2 export JSON
 await page.goto(B+'/settings'); await page.waitForSelector('text=Your data');
 const [dl]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:/Export everything/}).click()]);
 const file='/tmp/pw/backup.json'; await dl.saveAs(file); const bundle=JSON.parse(fs.readFileSync(file,'utf8'));
-ok('export has format fields and records', bundle.app==='personal-tracker'&&bundle.formatVersion===1&&bundle.meals.length>0&&bundle.transactions.length>0, `${bundle.meals.length} meals, ${bundle.transactions.length} tx, ${bundle.weighIns.length} weigh-ins`);
+ok('export has format fields and records', bundle.app==='personal-tracker'&&bundle.formatVersion===2&&bundle.meals.length>0&&bundle.transactions.length>0&&bundle.weighIns.length>0, `${bundle.meals.length} meals, ${bundle.transactions.length} tx, ${bundle.weighIns.length} weigh-ins`);
 // 3 Escape/back closes dialog; erase requires confirmation
 await page.getByRole('button',{name:'Delete all records'}).click(); await page.waitForSelector('dialog[open]');
 await page.evaluate(()=>document.querySelector('dialog[open]').dispatchEvent(new Event('cancel',{cancelable:true})));
-await page.waitForTimeout(300); ok('back-button style cancel closes the dialog without deleting', (await page.locator('dialog[open]').count())===0 && await page.evaluate(()=>JSON.parse(localStorage.getItem('pt.demo.db.v1')).transactions.length>0));
+await page.waitForTimeout(300); ok('back-button style cancel closes the dialog without deleting', (await page.locator('dialog[open]').count())===0 && await page.evaluate(()=>{const d=JSON.parse(localStorage.getItem('pt.demo.db.v1'));return d.meals.length>0&&d.transactions.length>0&&d.weighIns.length>0;}));
 await page.getByRole('button',{name:'Delete all records'}).click(); await page.waitForSelector('dialog[open]'); await page.getByRole('button',{name:'Delete everything'}).click(); await page.waitForTimeout(800);
 ok('erase empties meals/transactions/weigh-ins', await page.evaluate(()=>{const d=JSON.parse(localStorage.getItem('pt.demo.db.v1'));return d.transactions.length===0&&d.meals.length===0&&d.weighIns.length===0;}));
 await page.goto(B+'/'); await page.waitForSelector('main'); await page.waitForTimeout(500);
@@ -34,8 +51,9 @@ ok('empty database renders overview without errors', (await page.locator('main')
 await page.goto(B+'/settings'); await page.waitForSelector('text=Your data');
 await page.setInputFiles('input[type=file]',file); await page.waitForSelector('dialog[open]');
 await page.getByRole('button',{name:'Replace my records'}).click(); await page.waitForTimeout(900);
-const after=await page.evaluate(()=>{const d=JSON.parse(localStorage.getItem('pt.demo.db.v1'));return [d.meals.length,d.transactions.length,d.weighIns.length];});
-ok('restore brings back exactly the exported records', after[0]===bundle.meals.length&&after[1]===bundle.transactions.length&&after[2]===bundle.weighIns.length, after.join('/'));
+const after=await page.evaluate(()=>{const d=JSON.parse(localStorage.getItem('pt.demo.db.v1'));return {meals:d.meals,transactions:d.transactions,weighIns:d.weighIns};});
+const restoredIds=(records)=>records.map(r=>r.id).sort().join(',');
+ok('restore brings back exactly the exported records', ['meals','transactions','weighIns'].every(k=>after[k].length===bundle[k].length&&restoredIds(after[k])===restoredIds(bundle[k])), [after.meals.length,after.transactions.length,after.weighIns.length].join('/'));
 // 5 invalid backup is rejected, data untouched
 fs.writeFileSync('/tmp/pw/bad.json','{"meals":[{"id":"x"}],"transactions":[],"weighIns":[]}');
 await page.setInputFiles('input[type=file]','/tmp/pw/bad.json'); await page.waitForTimeout(500);
@@ -65,3 +83,4 @@ await page.setViewportSize({width:800,height:1280}); await page.waitForTimeout(5
 const filtered=errors.filter(e=>!/favicon|ERR_INTERNET_DISCONNECTED|Failed to load resource.*404/.test(e)); ok('no uncaught page errors during the run', filtered.length===0, filtered.slice(0,3).join(' | '));
 for(const r of results) console.log(r.join(' | '));
 await browser.close(); server.close();
+if(results.some(([status])=>status==='FAIL')) process.exitCode=1;

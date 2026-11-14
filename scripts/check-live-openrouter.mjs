@@ -25,7 +25,6 @@ async function probe(label, url, init) {
 const origin = { origin: site };
 const direct = await probe('OpenRouter public models', models, { method: 'GET', headers: origin });
 const cors = await probe('OpenRouter browser preflight', models, { method: 'OPTIONS', headers: { ...origin, 'access-control-request-method': 'GET', 'access-control-request-headers': 'authorization' } });
-await probe('Production old relay', `${site}/api/ai-proxy`, { method: 'GET', headers: { ...origin, 'x-proxy-target': models } });
 const relay = await probe('Production JSON relay', `${site}/api/llm-proxy`, { method: 'POST', headers: { ...origin, 'content-type': 'application/json' }, body: JSON.stringify({ url: models, method: 'GET' }) });
 if (!direct || direct.status !== 200 || !(direct.count > 0) || !cors || cors.status < 200 || cors.status >= 300 || !['*', site].includes(cors.origin) || !cors.allowedHeaders?.toLowerCase().includes('authorization') || !relay || relay.status !== 200 || !(relay.count > 0)) {
   console.error('Public OpenRouter discovery or relay connectivity failed; see check annotations. No API key was used.');

@@ -1,6 +1,6 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { isNative } from '@/tracker/lib/platform/native';
-import { isBridgedHost, PROXY_ERROR, PROXY_MARK, PROXY_PATH, PROXY_TARGET_HEADER } from './bridged-hosts';
+import { isBridgedHost, PROXY_ERROR, PROXY_MARK } from './bridged-hosts';
 import { llmFetch } from './llm-fetch';
 
 export interface AiFetchInit {
@@ -94,17 +94,6 @@ export async function aiFetch(
   }
 
   const target = new URL(url);
-  // Leave OpenRouter chat on its existing transport; this change concerns discovery.
-  if (target.hostname === 'openrouter.ai' && init.method === 'POST') {
-    return {
-      res: await resolved.fetchImpl(PROXY_PATH, {
-        method: init.method, headers: { ...init.headers, [PROXY_TARGET_HEADER]: url },
-        ...(init.body === undefined ? {} : { body: init.body }), signal: init.signal,
-        credentials: 'same-origin', cache: 'no-store', referrerPolicy: 'no-referrer',
-      }),
-      viaRelay: true,
-    };
-  }
   // Only model discovery is safe to retry automatically. Never replay a chat POST:
   // the first request may already have been processed even if its response was lost.
   const canTryDirect = init.method === 'GET' && target.hostname === 'openrouter.ai' &&
