@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { findNutritionMatchesForMessage } from '@/tracker/lib/nutrition/lookup';
 import { categoryTotals, filterTransactions, lastNDaysRange, totalByType, trackedBalance, budgetSummary } from '@/tracker/features/transactions/calculations';
 import { categoryLabel } from '@/tracker/features/transactions/categories';
 import { nutritionTotals } from '@/tracker/features/meals/calculations';
@@ -73,6 +74,7 @@ export const SCHEMAS = {
     occurred_at: isoStamp.nullish(),
   }),
   log_weight: z.object({ weight_kg: num, recorded_at: isoStamp.nullish(), notes: text(500).nullish() }),
+  lookup_nutrition: z.object({ query: text(1000).min(1) }),
   get_summary: z.object({
     domain: z.enum(['all', 'nutrition', 'finance', 'weight']),
     period: z.enum(['today', 'yesterday', 'this_week', 'this_month', 'last_7_days', 'last_30_days', 'custom']),
@@ -453,6 +455,10 @@ export async function executeTool(name: string, rawArgs: Record<string, unknown>
       case 'log_meal': return await logMeal(parsed.data as z.infer<typeof SCHEMAS.log_meal>, env);
       case 'add_money_transaction': return await addTransaction(parsed.data as z.infer<typeof SCHEMAS.add_money_transaction>, env);
       case 'log_weight': return await logWeight(parsed.data as z.infer<typeof SCHEMAS.log_weight>, env);
+      case 'lookup_nutrition': {
+        const { query } = parsed.data as z.infer<typeof SCHEMAS.lookup_nutrition>;
+        return { status: 'succeeded', summary: 'Nutrition reference searched', modelContent: { ok: true, matches: findNutritionMatchesForMessage(query), note: 'Candidates and MRP calibrations are unverified estimates, not label data. Unknown values are not zero.' }, write: false, invalidation: [] };
+      }
       case 'get_summary': return await getSummary(parsed.data as z.infer<typeof SCHEMAS.get_summary>, env);
       case 'search_entries': return await searchEntries(parsed.data as z.infer<typeof SCHEMAS.search_entries>, env);
       case 'update_transaction': return await updateTransaction(parsed.data as z.infer<typeof SCHEMAS.update_transaction>, env);

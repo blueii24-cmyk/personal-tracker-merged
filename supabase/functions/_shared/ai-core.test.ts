@@ -18,7 +18,7 @@ describe('default AI relay core', () => {
     const body = toProviderBody(input, 'configured-model', system);
     expect(body.model).toBe('configured-model');
     expect(body.max_tokens).toBe(1500);
-    expect(body.tools).toHaveLength(8);
+    expect(body.tools).toHaveLength(9);
     expect(JSON.stringify(body)).toContain('You are the logging assistant inside a personal tracker app');
     expect(JSON.stringify(body)).toContain('My usual shorthand');
     expect(JSON.stringify(body)).not.toContain('attacker-selected-model');
@@ -26,7 +26,7 @@ describe('default AI relay core', () => {
     expect(estimateInputTokens(system, input)).toBeGreaterThan(1);
   });
 
-  it('validates history, context, output limits and the eight tool names', () => {
+  it('validates history, context, output limits and the allowed tool names', () => {
     expect(() => validateGenerateInput({ ...request(), maxOutputTokens: 1501 })).toThrow(AiRequestError);
     expect(() => validateGenerateInput({ ...request(), messages: [] })).toThrow(AiRequestError);
     expect(() => validateGenerateInput({ ...request(), context: { settings: { ...settings, timezone: 'not/a-zone' }, notes: '' } })).toThrow(AiRequestError);
@@ -58,4 +58,14 @@ describe('default AI relay core', () => {
     expect(usageCostMicros(1000, 500, 1, 3)).toBe(2500);
     expect(usageCostMicros(1000, 500, 0, 0)).toBe(0);
   });
+});
+
+it('sends the server-owned nutrition rules and lookup schema while retaining client reference data as user content', () => {
+  const input = validateGenerateInput({ ...request(), messages: [{ role: 'user', content: 'I ate ₹10 Dairy Milk and ₹5 moong dal\n\n### Local Indian Nutrition Database Matches\nUnverified estimates' }] });
+  const system = buildRelaySystem(input, new Date('2026-11-03T06:00:00Z'));
+  const body = toProviderBody(input, 'configured-model', system);
+  expect(system).toContain('MRP amounts');
+  expect(system).toContain('not carbs or fat');
+  expect(JSON.stringify(body)).toContain('lookup_nutrition');
+  expect(JSON.stringify(body)).toContain('Local Indian Nutrition Database Matches');
 });

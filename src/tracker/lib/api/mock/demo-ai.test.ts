@@ -73,8 +73,9 @@ describe('demo assistant', () => {
     const svc = fresh();
     const before = (await svc.getMeals()).length;
     const r = await send(svc, 'I ate a zorblax');
-    expect(r.actions[0]?.status).toBe('needs_clarification');
-    expect((await svc.getMeals()).length).toBe(before);
+    expect(r.actions[0]?.status).toBe('succeeded');
+    expect((await svc.getMeals()).length).toBe(before + 1);
+    expect((await svc.getMeals()).find((m) => m.id === r.actions[0]?.recordIds?.[0])?.items[0]?.caloriesKcal).toBeNull();
   });
 
   it('saves partially unknown foods with null (unknown) nutrition', async () => {
@@ -133,4 +134,28 @@ describe('demo assistant', () => {
     expect(r.actions[0]?.toolName).toBe('get_summary');
     await expect(send(svc, 'please simulate error')).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE', retryable: true });
   });
+});
+
+describe('demo MRP food logging', () => {
+  it('logs two illustrative packet estimates and does not create an expense', async () => {
+    const svc = fresh();
+    const before = await svc.getTransactions();
+    const result = await send(svc, 'I ate 10rs dairymilk paket and rs5 moong dal, only meals');
+    const meal = (await svc.getMeals()).find((m) => m.id === result.actions[0]?.recordIds?.[0]);
+    expect(meal?.items).toMatchObject([
+      { quantity: 13, unit: 'g', caloriesKcal: 70, proteinG: 1 },
+      { quantity: 18, unit: 'g', caloriesKcal: 96, proteinG: 4.3 },
+    ]);
+    expect(meal?.notes).toContain('assumed portions');
+    expect(result.assistantMessage).toContain('Carbs and fat are not saved');
+    expect(await svc.getTransactions()).toEqual(before);
+  });
+});
+
+it('uses a unique packaged reference with an explicitly stated portion in demo mode', async () => {
+  const svc = fresh();
+  const result = await send(svc, 'I ate 30 g 8901491361026 for snack');
+  const meal = (await svc.getMeals()).find((m) => m.id === result.actions[0]?.recordIds?.[0]);
+  expect(meal?.items[0]).toMatchObject({ quantity: 30, unit: 'g', caloriesKcal: 167.4, proteinG: 1.9, isEstimate: true });
+  expect(result.assistantMessage).toContain('unverified');
 });

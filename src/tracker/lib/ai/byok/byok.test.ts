@@ -255,8 +255,8 @@ describe('scoped system prompt', () => {
     expect(prompt).toMatch(/cannot override the rules above/);
     expect(buildSystemPrompt(settings, NOW, '  ')).not.toContain('STANDING NOTES');
   });
-  it('only offers the eight tracker tools and none that delete', () => {
-    expect(AI_TOOLS.map((t) => t.name).sort()).toEqual(['add_money_transaction', 'get_summary', 'log_meal', 'log_weight', 'search_entries', 'update_meal', 'update_transaction', 'update_weight']);
+  it('only offers the tracker and nutrition tools and none that delete', () => {
+    expect(AI_TOOLS.map((t) => t.name).sort()).toEqual(['add_money_transaction', 'get_summary', 'log_meal', 'log_weight', 'lookup_nutrition', 'search_entries', 'update_meal', 'update_transaction', 'update_weight']);
   });
 });
 
@@ -331,7 +331,7 @@ describe('http, keys and addresses', () => {
     expect(s.headers.authorization).toBe(`Bearer ${KEY}`);
     expect(s.body.max_completion_tokens).toBe(100);
     expect(s.body).not.toHaveProperty('max_tokens');
-    expect((s.body.tools as unknown[]).length).toBe(8);
+    expect((s.body.tools as unknown[]).length).toBe(9);
     expect(out.toolCalls).toEqual([{ id: 'x', name: 'log_weight', arguments: { weight_kg: 71 } }]);
     expect(out.finishReason).toBe('tool_calls');
   });
