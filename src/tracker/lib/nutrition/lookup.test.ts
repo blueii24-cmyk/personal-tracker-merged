@@ -107,3 +107,63 @@ describe('meal estimates after a read-only edit', () => {
     expect(await svc.getMeals()).toHaveLength(1);
   });
 });
+
+describe('multi-item MRP references', () => {
+  it.each(['10rs', 'rs10', 'rs 10', '₹10', '10 wale'])('normalizes %s and matches both foods', (price) => {
+    const text = `I ate ${price} dairymilk paket and ₹5 moong dal`;
+    const reference = nutritionReference(text);
+    expect(reference).toContain('### Local Indian Nutrition Database Matches');
+    expect(reference).toContain('assumed ~13 g');
+    expect(reference).toContain('assumed ~18 g');
+    expect(reference).toContain('~8.5 g carbs');
+    expect(reference).toContain('~5 g fat');
+    expect(reference).toContain('unverified');
+  });
+  it.each([',', '&', '+', 'with', '\n'])('supports %s as an item separator', (sep) => {
+    const result = nutritionReference(`₹10 dairymilk ${sep} ₹5 moong dal`);
+    expect(result).toContain('assumed ~13 g');
+    expect(result).toContain('assumed ~18 g');
+  });
+  it('does not apply calibration to a different price, flavour or explicit mass', () => {
+    expect(nutritionReference('₹20 Dairy Milk')).not.toContain('assumed ~13 g');
+    expect(nutritionReference('₹10 Dairy Milk Silk')).not.toContain('assumed ~13 g');
+    expect(nutritionReference('₹10 Dairy Milk fruit & nut')).not.toContain('assumed ~13 g');
+    expect(nutritionReference('₹10 Dairy Milk 50 g')).not.toContain('assumed ~13 g');
+    expect(nutritionReference('2 ₹10 packets of dairy milk')).not.toContain('assumed ~13 g');
+  });
+  it('provides both hints to BYOK and blocks an erroneous expense for a meal-only request', async () => {
+    const svc = new MockTrackerService(() => now);
+    const previous = await svc.getTransactions();
+    const inputs: ProviderGenerateInput[] = [];
+    const adapter: AiProviderAdapter = { providerId: 'openai', async generate(input) {
+      inputs.push(structuredClone(input));
+      return inputs.length === 1 ? { text: '', finishReason: 'tool_calls', toolCalls: [
+        { id: 'lookup', name: 'lookup_nutrition', arguments: { query: '₹10 dairymilk and ₹5 moong dal' } },
+        { id: 'expense', name: 'add_money_transaction', arguments: { transaction_type: 'expense', amount: 15, category: 'food', description: 'snacks' } },
+        { id: 'meal', name: 'log_meal', arguments: { meal_type: 'snack', notes: 'Assumed packet sizes, unverified estimates.', items: [
+          { food_name: 'Dairy Milk', quantity: 13, unit: 'g', calories_kcal: 70, protein_g: 1 },
+          { food_name: 'Moong dal snack', quantity: 18, unit: 'g', calories_kcal: 96, protein_g: 4.3 },
+        ] } },
+      ] } : { text: 'Logged estimated snacks.', finishReason: 'stop', toolCalls: [] };
+    } };
+    const result = await runByokChat({ service: svc, config, input: { message: 'I ate ₹10 dairymilk and ₹5 moong dal, only meals', clientMessageId: 'mrp-only' }, adapter, now: () => now });
+    expect(inputs[0]?.messages.at(-1)?.content).toContain('assumed ~13 g');
+    expect(inputs[0]?.messages.at(-1)?.content).toContain('assumed ~18 g');
+    expect(inputs[1]?.messages.find((m) => m.role === 'tool' && m.name === 'lookup_nutrition')?.content).toContain('Moong dal');
+    expect(await svc.getTransactions()).toEqual(previous);
+    expect((await svc.getMeals()).at(-1)?.items).toHaveLength(2);
+    expect(result.assistantMessage).toContain('No transaction was recorded');
+  });
+});
+
+it('rejects a model-invented expense for an MRP food without an expense request', async () => {
+  const svc = new MockTrackerService(() => now);
+  const before = await svc.getTransactions();
+  let round = 0;
+  const adapter: AiProviderAdapter = { providerId: 'openai', async generate() {
+    return ++round === 1 ? { text: '', finishReason: 'tool_calls', toolCalls: [{ id: 'bad', name: 'add_money_transaction', arguments: { transaction_type: 'expense', amount: 10, category: 'food', description: 'chocolate' } }] } : { text: 'Done', finishReason: 'stop', toolCalls: [] };
+  } };
+  const result = await runByokChat({ service: svc, config, input: { message: 'I ate ₹10 dairy milk', clientMessageId: 'mrp-not-expense' }, adapter, now: () => now });
+  expect(await svc.getTransactions()).toEqual(before);
+  expect(result.assistantMessage).toContain('No transaction was recorded');
+});

@@ -21,7 +21,7 @@ const isoDateTime = {
 export const AI_TOOLS: CanonicalToolDefinition[] = [
   {
     name: 'log_meal',
-    description: 'Record one meal and its food items. Nutrition values are estimates unless a trusted source or user-provided label is explicitly recorded.',
+    description: 'Record all foods in one meal immediately. Estimate a reasonable serving and nutrition when not provided; grams and serving size are not required. Note assumptions. Omit unknown nutrition rather than guessing facts.',
     inputSchema: objectSchema({
       meal_type: { type: 'string', enum: ['breakfast', 'lunch', 'dinner', 'snack', 'other'] },
       eaten_at: isoDateTime,
@@ -30,7 +30,7 @@ export const AI_TOOLS: CanonicalToolDefinition[] = [
         type: 'array', minItems: 1, maxItems: 25,
         items: { ...objectSchema({
           food_name: { type: 'string', minLength: 1, maxLength: 200 },
-          quantity: { type: 'number', exclusiveMinimum: 0 },
+          quantity: { type: 'number', exclusiveMinimum: 0, description: 'Optional amount; estimate a typical serving if unspecified.' },
           unit: { type: 'string', maxLength: 40 },
           calories_kcal: { type: 'number', minimum: 0 },
           protein_g: { type: 'number', minimum: 0 },
@@ -59,6 +59,11 @@ export const AI_TOOLS: CanonicalToolDefinition[] = [
       recorded_at: isoDateTime,
       notes: { type: 'string', maxLength: 500 },
     }, ['weight_kg']),
+  },
+  {
+    name: 'lookup_nutrition',
+    description: 'Search offline food reference candidates and illustrative MRP estimates. Read-only, incomplete and unverified; use known serving assumptions and keep missing values unknown.',
+    inputSchema: objectSchema({ query: { type: 'string', minLength: 1, maxLength: 1000 } }, ['query']),
   },
   {
     name: 'get_summary',

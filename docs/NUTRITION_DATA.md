@@ -27,8 +27,8 @@ its repository says files are freely available but does not specify a data licen
 The reference is searched locally, without transmitting food searches to Open Food Facts.
 Only possible matches and the user's message are sent to the user's chosen AI provider (or
 the authenticated default relay). Match candidates are not verified identities or automatic
-writes. The model should ask about ambiguity and portion size and label calculations as
-estimates. Unknown nutrients are not zero. This snapshot does not cover all Indian foods or
+writes. The model should estimate reasonable portions, explain uncertainty and label calculations as
+estimates; it should ask only when the food itself is unclear. The ₹10 Dairy Milk and ₹5 moong dal examples are user-supplied illustrative calibrations, not verified pack weights or label data. Explicit quantities and labels take precedence, and prices and pack sizes change. The tracker stores calories and protein, not carbs or fat. Unknown nutrients are not zero. This snapshot does not cover all Indian foods or
 products and will not update itself.
 
 To rebuild the derived files, download the two pinned files linked above and run

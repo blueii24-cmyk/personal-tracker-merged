@@ -20,6 +20,7 @@ import type {
   TransactionCategory, TransactionInput, TransactionType, UserSettings, WeighIn, WeighInInput,
 } from '@/tracker/types/domain';
 import { parseFoodSegment, toFoodItem } from './food-database';
+import { findNutritionMatchesForMessage } from '@/tracker/lib/nutrition/lookup';
 
 type Invalidation = Array<'nutrition' | 'finance' | 'weight' | 'history'>;
 export type DemoAction = Omit<AiActionResult, 'toolCallId'>;
@@ -127,7 +128,7 @@ function describeTransaction(text: string, amount: Amount, fallback: string): st
 /* ---------------------------------- main ---------------------------------- */
 
 export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAiResult {
-  const message = norm(rawMessage);
+  const message = norm(rawMessage.replace(/\n+/g, ', '));
   const lower = message.toLowerCase();
   const tz = ctx.settings.timezone;
   const today = todayKey(tz, ctx.now);
@@ -154,9 +155,12 @@ export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAi
   const incomeVerb = /\b(received|receive|got|earned|credited|salary|pocket money|allowance|income|stipend|refund(?:ed)?|gifted|cashback)\b/.test(lower);
   const expenseVerb = /\b(spent|spend|paid|pay|bought|buy|purchased|cost|costs|recharged|expense)\b/.test(lower);
 
+  const mealOnly = /\b(?:only|just)\s+(?:log\s+)?meals?\b|\b(?:meals?|food)\s+only\b|\b(?:no|without|dont|don't|do not)\s+(?:log\s+)?(?:expenses?|transactions?)\b/i.test(lower);
+  const hasMealIntent = /\b(ate|eaten|eat|had|drank|consumed|having|eating|breakfast|lunch|dinner|snacks?|brunch)\b/.test(lower);
+  if (mealOnly && hasMealIntent) return handleMeal(message, ctx, today);
   if (hasWeightWord) return handleWeight(message, ctx, today);
   if (incomeVerb && !expenseVerb) return handleTransaction('income', message, amount, ctx, today);
-  if (expenseVerb || (amount && !incomeVerb && /\b(for|on)\b/.test(lower))) return handleTransaction('expense', message, amount, ctx, today);
+  if (expenseVerb || (amount && !incomeVerb && !hasMealIntent && /\b(for|on)\b/.test(lower))) return handleTransaction('expense', message, amount, ctx, today);
 
   const eatsVerb = /\b(ate|eaten|eat|had|have|drank|drink|drunk|consumed|having|eating)\b/.test(lower);
   const mealWord = /\b(breakfast|lunch|dinner|snack|brunch)\b/.test(lower);
@@ -189,41 +193,52 @@ function handleMeal(message: string, ctx: DemoAiContext, today: DateKey): DemoAi
     .replace(/\b(for|at|during|as my|as)\s+(breakfast|lunch|dinner|snacks?|brunch)\b/g, ' ')
     .replace(/\b(breakfast|lunch|dinner|snacks?|brunch)\b[:\-]?/g, ' ')
     .replace(/\b(day before yesterday|yesterday(?:'s)?|last night|today|tonight|this (?:morning|afternoon|evening)|\d{1,2} days? ago)\b/g, ' ')
+    .replace(/\b(?:only|just)\s+(?:log\s+)?meals?\b|\b(?:meals?|food)\s+only\b|\b(?:no|without|dont|don't|do not)\s+(?:log\s+)?(?:expenses?|transactions?)\b/g, ' ')
     .replace(/\b(please|log|add|record)\b/g, ' ');
   body = body.replace(/\s+/g, ' ').trim();
 
-  const segments = body.split(/\s*(?:,|;|&|\+|\band\b|\bwith\b|\balong with\b|\bplus\b)\s*/).map((s) => s.trim()).filter(Boolean);
+  const segments = body.replace(/\bfruit\s*(?:&|and)\s*nut\b/gi, 'fruit nut').split(/\s*(?:,|;|&|\+|\band\b|\bwith\b|\balong with\b|\bplus\b)\s*/).map((s) => s.trim()).filter(Boolean);
+  const references = segments.map((s) => findNutritionMatchesForMessage(s).find((m) => m.kind === 'calibration'));
   const parsed = segments
-    .map((s) => parseFoodSegment(s))
-    .filter((p): p is NonNullable<typeof p> => p !== null && !/^(?:i|we|it|that|some|of|the)$/.test(p.phrase));
+    .map((original) => ({ original, food: parseFoodSegment(original) }))
+    .filter((p): p is { original: string; food: NonNullable<typeof p.food> } => p.food !== null && !/^(?:i|we|it|that|some|of|the)$/.test(p.food.phrase));
 
   if (parsed.length === 0) {
     return reply("What did you eat? Tell me the foods and portions, for example \"two rotis, a bowl of dal and a glass of milk\". I haven't logged anything yet.", [
       { toolName: 'log_meal', status: 'needs_clarification', summary: 'No foods found in the message' },
     ]);
   }
-  const known = parsed.filter((p) => p.food);
-  if (known.length === 0) {
-    const names = parsed.map((p) => `"${p.phrase}"`).join(', ');
-    return reply(
-      `I don't have a reliable nutrition estimate for ${names}, so I haven't logged it. Tell me the calories and protein (for example from the label), or add it manually from the Bulking page.`,
-      [{ toolName: 'log_meal', status: 'needs_clarification', summary: 'No nutrition estimate available' }],
-    );
-  }
-
-  const items = parsed.map((p) => toFoodItem(p));
+  const items = parsed.map(({ original, food }) => {
+    const match = findNutritionMatchesForMessage(original).find((m) => m.kind === 'calibration');
+    if (match?.estimated && match.estimatedGrams != null) return { foodName: match.name, quantity: match.estimatedGrams, unit: 'g', caloriesKcal: match.estimated.kcal, proteinG: match.estimated.protein, isEstimate: true, nutritionSource: 'ai_estimate' as const };
+    const candidates = findNutritionMatchesForMessage(original).filter((m) => m.kind === 'packaged');
+    const grams = original.match(/\b(\d+(?:\.\d+)?)\s*(?:g|grams?)\b/i);
+    // Do not silently pick a brand/flavour from competing matches or guess liquid servings.
+    const candidate = candidates.length === 1 && !/\b(?:milk|drink|juice|water|oil)\b/i.test(candidates[0]!.name) ? candidates[0] : undefined;
+    if (candidate?.per100 && (grams || !/\b(?:kg|ml|litres?|liters?|packets?|packs?|bars?)\b/i.test(original))) {
+      const quantity = grams ? Number(grams[1]) : 30;
+      if (quantity <= 0 || quantity > 10000) return toFoodItem(food);
+      const round = (n: number) => Math.round(n * 10) / 10;
+      return { foodName: candidate.name, quantity, unit: 'g', caloriesKcal: round(candidate.per100.kcal * quantity / 100), proteinG: candidate.per100.protein == null ? null : round(candidate.per100.protein * quantity / 100), isEstimate: true, nutritionSource: 'ai_estimate' as const };
+    }
+    return toFoodItem(food);
+  });
   const eatenAt = instantFor(date, today, ctx.now, tz, DEFAULT_TIMES[mealType]);
-  const meal = ctx.createMeal({ mealType, eatenAt, notes: null, items });
+  const referenceUsed = items.some((item) => item.unit === 'g' && item.nutritionSource === 'ai_estimate' && !parsed.some((p) => p.food.food && p.food.food.name === item.foodName));
+  const meal = ctx.createMeal({ mealType, eatenAt, notes: references.some(Boolean) || referenceUsed ? 'Portions and nutrition are estimates; assumed portions and MRP sizes are not verified labels.' : null, items });
   const totals = nutritionTotals([meal]);
 
   const unknown = items.filter((i) => i.caloriesKcal == null);
-  const assumed = parsed.filter((p) => p.food && p.assumedPortion).map((p) => p.food!.name.toLowerCase());
+  const assumed = parsed.filter((p) => p.food.food && p.food.assumedPortion && !findNutritionMatchesForMessage(p.original).some((m) => m.kind === 'calibration')).map((p) => p.food.food!.name.toLowerCase());
   const when = date.explicit && date.key !== today ? ` for ${formatRelativeDayInline(date.key, today)}` : '';
   const itemText = items.map((i) => `${i.foodName.toLowerCase()}${i.quantity != null ? ` (${trimNum(i.quantity)}${i.unit ? ` ${i.unit}` : ''})` : ''}`).join(', ');
 
   let text = `Done — I've logged ${mealType}${when}: ${itemText}. That's about ${formatKcal(totals.caloriesKcal)} and ${formatGrams(totals.proteinG)} protein. These are estimates, not measured values.`;
   if (inferred) text += ` You didn't say which meal it was, so I filed it as ${mealType} based on the time.`;
   if (assumed.length) text += ` I assumed one standard serving of ${assumed.join(' and ')}.`;
+  const estimatedMacros = references.filter((m): m is NonNullable<typeof m> => !!m?.estimated).map((m) => `${m.name}: ~${m.estimatedGrams} g, ${m.estimated!.kcal} kcal, ${m.estimated!.protein} g protein, ${m.estimated!.carbs} g carbs, ${m.estimated!.fat} g fat`);
+  if (referenceUsed && !estimatedMacros.length) text += ' Packaged food amounts use the stated grams or an assumed 30 g serving; reference data is unverified.';
+  if (estimatedMacros.length) text += ` Assumed packet estimates: ${estimatedMacros.join('; ')}. Actual sizes vary. Carbs and fat are not saved by the tracker.`;
   if (unknown.length) text += ` I couldn't estimate ${unknown.map((u) => u.foodName.toLowerCase()).join(' or ')}, so ${unknown.length === 1 ? 'it is' : 'they are'} saved without nutrition values and left out of the totals.`;
 
   const payload: ActionPayload = { kind: 'meal', operation: 'created', mealId: meal.id };

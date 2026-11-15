@@ -44,7 +44,7 @@ function historyToCanonical(history: ChatMessage[]): CanonicalMessage[] {
 function visibleActions(all: Array<AiActionResult & { name: string }>): AiActionResult[] {
   return all
     .filter((a, i) => {
-      if (a.name === 'search_entries') return false;
+      if (a.name === 'search_entries' || a.name === 'lookup_nutrition') return false;
       if (a.status === 'succeeded') return true;
       return !all.slice(i + 1).some((later) => later.name === a.name && later.status === 'succeeded');
     })
@@ -102,6 +102,10 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   let interrupted: string | null = null;
   let editWriteBlocked = false;
   let updateDeclined = false;
+  let mealOnlyTransactionBlocked = false;
+  const mealOnly = /\b(?:only|just)\s+(?:log\s+)?meals?\b|\b(?:meals?|food)\s+only\b|\b(?:no|without|dont|don't|do not)\s+(?:log\s+)?(?:expenses?|transactions?)\b/i.test(message);
+  const foodWithMrp = /\b(?:ate|eat|eaten|had|eating|consumed|snack|breakfast|lunch|dinner)\b/i.test(message) && /₹\s*\d|\brs\.?\s*\d|\b\d+\s*(?:rs\b|wale\b|wala\b)/i.test(message);
+  const explicitMoney = /\b(?:spent|spend|paid|pay|expense|transaction|budget|cost|bought|purchased|income|received)\b/i.test(message);
 
   try {
     for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -137,6 +141,10 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
           calls++;
           editWriteBlocked = true;
           outcome = { status: 'rejected', summary: 'Corrections cannot change records', modelContent: { ok: false, error: 'This correction is read-only. No record was changed. Ask the user to review their records before a separate change.' }, write: false, invalidation: [] };
+        } else if ((mealOnly || (foodWithMrp && !explicitMoney)) && ['add_money_transaction', 'update_transaction'].includes(call.name)) {
+          calls++;
+          mealOnlyTransactionBlocked = true;
+          outcome = { status: 'rejected', summary: 'No transaction requested', modelContent: { ok: false, error: 'MRP is not a transaction request, or the user requested meals only. Do not record or update a transaction.' }, write: false, invalidation: [] };
         } else if (updateDeclined && ['update_transaction', 'update_meal', 'update_weight'].includes(call.name)) {
           calls++;
           outcome = { status: 'rejected', summary: 'Update not confirmed', modelContent: { ok: false, error: 'The user declined an update; do not ask again in this message.' }, write: false, invalidation: [] };
@@ -189,6 +197,8 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   if (editWriteBlocked) assistantMessage = 'I could not apply a record change while regenerating this correction.';
   else if (updateDeclined) assistantMessage = 'The proposed record update was not confirmed.';
 
+  if (mealOnlyTransactionBlocked) assistantMessage += mealOnly ? '\n\nNo transaction was recorded: you requested meals only.' : '\n\nNo transaction was recorded; the price was treated as a food detail.';
+
   // Attribute bundled open data even when a model forgets; candidates may or may not
   // have been used in its answer. This does not imply that the label was verified.
   if (reference && !editWriteBlocked) {
@@ -197,7 +207,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
       reference.includes('fdc.nal.usda.gov') ? 'USDA FoodData Central: https://fdc.nal.usda.gov/' : '',
       reference.includes('10.1016/j.cdnut.2024.103790') ? 'Vijayakumar et al.: https://doi.org/10.1016/j.cdnut.2024.103790' : '',
     ].filter(Boolean);
-    assistantMessage += `\n\nNutrition reference candidates (values may vary): ${credits.join('; ')}.`;
+    if (credits.length) assistantMessage += `\n\nNutrition reference candidates (values may vary): ${credits.join('; ')}.`;
   }
 
   return service.recordChatExchange({
