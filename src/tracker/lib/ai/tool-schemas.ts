@@ -61,6 +61,19 @@ export const AI_TOOLS: CanonicalToolDefinition[] = [
     }, ['weight_kg']),
   },
   {
+    name: 'log_water',
+    description: 'Log plain drinking water in millilitres as an intake entry. Convert litres to ml. Ask for the volume if a glass or cup size is not stated. Do not log water from other beverages.',
+    inputSchema: objectSchema({
+      water_ml: { type: 'number', exclusiveMinimum: 0, maximum: 100000 },
+      consumed_at: isoDateTime,
+    }, ['water_ml']),
+  },
+  {
+    name: 'set_water_target',
+    description: 'Set the daily water target only when the user explicitly asks for a specific target in ml or litres. Never recommend or invent a target. The app requires the user to confirm the change.',
+    inputSchema: objectSchema({ target_ml: { type: 'number', exclusiveMinimum: 0, maximum: 100000 } }, ['target_ml']),
+  },
+  {
     name: 'lookup_nutrition',
     description: 'Search offline food reference candidates and illustrative MRP estimates. Read-only, incomplete and unverified; use known serving assumptions and keep missing values unknown.',
     inputSchema: objectSchema({ query: { type: 'string', minLength: 1, maxLength: 1000 } }, ['query']),

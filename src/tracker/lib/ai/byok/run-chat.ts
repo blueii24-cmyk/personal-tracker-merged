@@ -1,3 +1,4 @@
+import { resolveWaterFollowUp } from '@/tracker/features/meals/water-language';
 import { AI_TOOLS } from '../tool-schemas';
 import type { AiProviderAdapter, CanonicalMessage } from '../provider';
 import { isAbortError, TrackerError, toTrackerError } from '@/tracker/lib/api/errors';
@@ -88,6 +89,8 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
     : message;
   // A short portion-size follow-up may refer to the immediately preceding user message.
   const previousUser = [...(edit ? edit.prefix : history)].reverse().find((m) => m.role === 'user')?.content;
+  const previousAssistant = [...(edit ? edit.prefix : history)].reverse().find((m) => m.role === 'assistant')?.content;
+  const waterMessage = resolveWaterFollowUp(message, previousUser, previousAssistant);
   const followUp = message.length < 80 && /\b\d+(?:\.\d+)?\s*(?:g|grams?|ml|millilit(?:er|re)s?)\b/i.test(message);
   const reference = mode === 'log' ? nutritionReference(followUp && previousUser ? `${previousUser} ${message}` : message) : '';
   const messages: CanonicalMessage[] = [...historyToCanonical(edit ? edit.prefix : history), { role: 'user', content: reference ? `${prompt}\n\n${reference}` : prompt }];
@@ -116,6 +119,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
             timezone: settings.timezone,
             dailyCalorieTarget: mode === 'casual' ? null : settings.dailyCalorieTarget,
             dailyProteinTargetG: mode === 'casual' ? null : settings.dailyProteinTargetG,
+            dailyWaterTargetMl: mode === 'casual' ? null : (settings.dailyWaterTargetMl ?? null),
             monthlyBudget: mode === 'casual' ? null : settings.monthlyBudget,
             targetWeightKg: mode === 'casual' ? null : settings.targetWeightKg,
             weightUnit: mode === 'casual' ? 'kg' : settings.weightUnit,
@@ -145,7 +149,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
           calls++;
           mealOnlyTransactionBlocked = true;
           outcome = { status: 'rejected', summary: 'No transaction requested', modelContent: { ok: false, error: 'MRP is not a transaction request, or the user requested meals only. Do not record or update a transaction.' }, write: false, invalidation: [] };
-        } else if (updateDeclined && ['update_transaction', 'update_meal', 'update_weight'].includes(call.name)) {
+        } else if (updateDeclined && ['update_transaction', 'update_meal', 'update_weight', 'set_water_target'].includes(call.name)) {
           calls++;
           outcome = { status: 'rejected', summary: 'Update not confirmed', modelContent: { ok: false, error: 'The user declined an update; do not ask again in this message.' }, write: false, invalidation: [] };
         } else if (calls >= MAX_TOOL_CALLS) {
@@ -158,7 +162,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
           continue;
         } else {
           calls++;
-          outcome = await executeTool(call.name, call.arguments, { service, settings, now: clock() });
+          outcome = await executeTool(call.name, call.arguments, { service, settings, now: clock(), userMessage: waterMessage });
           if (outcome.write) writes++;
           if (key && outcome.status === 'succeeded') seenWrites.set(key, outcome);
         }
@@ -196,6 +200,13 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   // The model may still claim success after a rejected tool call; never display that claim as a receipt.
   if (editWriteBlocked) assistantMessage = 'I could not apply a record change while regenerating this correction.';
   else if (updateDeclined) assistantMessage = 'The proposed record update was not confirmed.';
+
+  const waterFailed = done.some((a) => a.name === 'log_water' && a.status !== 'succeeded') && !done.some((a) => a.name === 'log_water' && a.status === 'succeeded');
+  const targetFailed = done.some((a) => a.name === 'set_water_target' && a.status !== 'succeeded') && !done.some((a) => a.name === 'set_water_target' && a.status === 'succeeded');
+  if (!interrupted && !editWriteBlocked && (waterFailed || targetFailed)) {
+    const explanation = [waterFailed ? 'No water intake was saved. Please provide the amount in ml or litres and a valid past date.' : '', targetFailed ? 'The water target was not changed.' : '', updateDeclined ? 'The proposed update was not confirmed.' : ''].filter(Boolean).join(' ');
+    assistantMessage = actions.some((a) => a.status === 'succeeded' && a.recordIds?.length) ? fallbackText(actions, explanation) : explanation;
+  }
 
   if (mealOnlyTransactionBlocked) assistantMessage += mealOnly ? '\n\nNo transaction was recorded: you requested meals only.' : '\n\nNo transaction was recorded; the price was treated as a food detail.';
 

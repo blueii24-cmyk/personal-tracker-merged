@@ -48,6 +48,7 @@ function settingsFrom(value: unknown): UserSettings {
     timezone,
     dailyCalorieTarget: nullableNumber(input.dailyCalorieTarget, 100_000),
     dailyProteinTargetG: nullableNumber(input.dailyProteinTargetG, 10_000),
+    dailyWaterTargetMl: input.dailyWaterTargetMl === undefined ? null : nullableNumber(input.dailyWaterTargetMl, 100_000),
     monthlyBudget: nullableNumber(input.monthlyBudget, 100_000_000),
     targetWeightKg: nullableNumber(input.targetWeightKg, 1000),
     weightUnit: input.weightUnit,

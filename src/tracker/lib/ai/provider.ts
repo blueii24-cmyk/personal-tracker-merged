@@ -32,7 +32,7 @@ export type ProviderGenerateInput = {
   signal?: AbortSignal;
   /** Authenticated default relay only; BYOK adapters ignore this. */
   relayContext?: {
-    settings: Pick<import('../../types/domain').UserSettings, 'timezone' | 'dailyCalorieTarget' | 'dailyProteinTargetG' | 'monthlyBudget' | 'targetWeightKg' | 'weightUnit'>;
+    settings: Pick<import('../../types/domain').UserSettings, 'timezone' | 'dailyCalorieTarget' | 'dailyProteinTargetG' | 'dailyWaterTargetMl' | 'monthlyBudget' | 'targetWeightKg' | 'weightUnit'>;
     notes: string;
     mode?: import('../../types/domain').ChatMode;
     progress?: string;

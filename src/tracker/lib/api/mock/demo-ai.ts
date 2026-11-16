@@ -19,6 +19,9 @@ import type {
   ActionPayload, DateKey, ExpenseCategory, IncomeCategory, Meal, MealInput, MealType, NutritionTotals, Transaction,
   TransactionCategory, TransactionInput, TransactionType, UserSettings, WeighIn, WeighInInput,
 } from '@/tracker/types/domain';
+import { waterMealInput } from '@/tracker/features/meals/water';
+import { requestedWaterTargetMl, waterPortion } from '@/tracker/features/meals/water-language';
+import { isDateKey } from '@/tracker/lib/formatting/dates';
 import { parseFoodSegment, toFoodItem } from './food-database';
 import { findNutritionMatchesForMessage } from '@/tracker/lib/nutrition/lookup';
 
@@ -32,6 +35,7 @@ export interface DemoAiContext {
   transactions: readonly Transaction[];
   weighIns: readonly WeighIn[];
   createMeal(input: MealInput): Meal;
+  setWaterTarget(targetMl: number): void;
   createTransaction(input: TransactionInput): Transaction;
   createWeighIn(input: WeighInInput): WeighIn;
   updateTransaction(id: string, input: TransactionInput): Transaction;
@@ -57,6 +61,7 @@ interface DateRef { key: DateKey; explicit: boolean; matched: string | null }
 function resolveDate(text: string, today: DateKey): DateRef {
   const t = text.toLowerCase();
   let m: RegExpMatchArray | null;
+  if ((m = t.match(/\b\d{4}-\d{2}-\d{2}\b/)) && isDateKey(m[0])) return { key: m[0], explicit: true, matched: m[0] };
   if ((m = t.match(/\bday before yesterday\b/))) return { key: addDays(today, -2), explicit: true, matched: m[0] };
   if ((m = t.match(/\b(yesterday|last night)(?:'s)?\b/))) return { key: addDays(today, -1), explicit: true, matched: m[0] };
   if ((m = t.match(/\b(\d{1,2}) days? ago\b/))) return { key: addDays(today, -Number(m[1])), explicit: true, matched: m[0] };
@@ -147,6 +152,33 @@ export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAi
   if (isDelete) {
     return reply("I can't delete records from chat yet. Open History, find the entry and use Delete — it asks you to confirm first, and you can undo straight afterwards.");
   }
+  if (/\bwater\b/.test(lower) && /\b(target|goal)\b/.test(lower) && (!isQuestion || /\b(?:set|change|update|make|adjust)\b/.test(lower))) {
+    if (/\b(?:drank|drink|drunk|consumed|log|record)\b/.test(lower)) return reply('Please send the water intake and target change as separate messages.');
+    const target = requestedWaterTargetMl(message);
+    if (target == null) return reply('What daily water target would you like in ml or litres? For example “set my water target to 2 litres”.', [{ toolName: 'set_water_target', status: 'needs_clarification', summary: 'Water target amount or unit missing' }]);
+    ctx.setWaterTarget(target);
+    return reply(`Your daily water target is now ${formatNumber(target)} ml.`, [{ toolName: 'set_water_target', status: 'succeeded', summary: `Water target · ${formatNumber(target)} ml/day`, recordIds: ['settings'], data: { kind: 'water_target', operation: 'updated', targetMl: target } }], ['nutrition']);
+  }
+  if (/\bwater\b/.test(lower) && isQuestion && !/\b(?:log|record|add)\b/.test(lower)) {
+    const date = resolveDate(message, today);
+    if (/\b(tomorrow|next week|next month)\b/i.test(message)) return reply('I can only summarize water for today or an earlier date.');
+    if (/\b(week|month|days)\b/.test(lower) && !date.explicit) return reply('Please ask for a specific day, such as today or yesterday.');
+    if (date.key > today) return reply('I can only summarize water for today or an earlier date.');
+    const water = nutritionTotals(mealsOnDate(ctx.meals, date.key, tz)).waterMl;
+    const target = ctx.settings.dailyWaterTargetMl;
+    return reply(`You have recorded ${formatNumber(water)} ml of water ${formatRelativeDayInline(date.key, today)}.${target == null ? ' No daily water target is set.' : ` Your daily target is ${formatNumber(target)} ml${water <= target ? `, with ${formatNumber(target - water)} ml remaining` : `, exceeded by ${formatNumber(water - target)} ml`}.`}`, [summaryAction('nutrition', 'Water · calculated from saved meals')]);
+  }
+  if (/\bwater\b/.test(lower) && /\b(log|record|add|drank|drink|drunk|had|consumed)\b/.test(lower) && !isCorrection) {
+    if (/\b(?:and|with|also)\b/i.test(message) && /\b(?:ate|eat|egg|rice|roti|meal|food|milk|dal|banana)\b/i.test(message)) return reply('Please log the water and food in separate messages so I do not miss either.');
+    const portion = waterPortion(message);
+    if (!portion) return reply('How much plain water did you drink? Please specify ml or litres.', [{ toolName: 'log_water', status: 'needs_clarification', summary: 'Water volume missing or ambiguous' }]);
+    if (/\b(tomorrow|next week|next month)\b/i.test(message)) return reply('I can only log water already consumed.');
+    const date = resolveDate(message, today);
+    if (date.key > today) return reply('I can only log water already consumed.');
+    const input = waterMealInput(portion.waterMl, date.key, tz, ctx.now);
+    const meal = ctx.createMeal(input);
+    return reply(`Logged ${formatNumber(portion.waterMl)} ml of water ${formatRelativeDayInline(date.key, today)}.`, [{ toolName: 'log_water', status: 'succeeded', summary: `Water · ${formatNumber(portion.waterMl)} ml`, recordIds: [meal.id], data: { kind: 'meal', operation: 'created', mealId: meal.id } }], ['nutrition', 'history']);
+  }
   if (isCorrection) return handleCorrection(message, ctx, today);
   if (isQuestion) return handleQuestion(message, ctx, today);
 
@@ -172,7 +204,7 @@ export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAi
 }
 
 const HELP_TEXT =
-  "I can log what you eat, what you spend or receive, and your weight, then answer questions from your saved records. For example: \"I ate three eggs and a glass of milk\", \"I spent ₹60 travelling to college\", \"I received ₹2,000 pocket money\", \"My weight is 48.2 kg today\", \"How much protein have I eaten today?\" or \"Correct yesterday's travel expense to ₹30\". This built-in assistant uses on-device rules, so it understands a limited set of phrasings.";
+  "I can log what you eat, water, what you spend or receive, and your weight, and set a daily water target, then answer questions from your saved records. For example: \"I ate three eggs and a glass of milk\", \"I spent ₹60 travelling to college\", \"I received ₹2,000 pocket money\", \"My weight is 48.2 kg today\", \"How much protein have I eaten today?\" or \"Correct yesterday's travel expense to ₹30\". This built-in assistant uses on-device rules, so it understands a limited set of phrasings.";
 
 /* --------------------------------- meals --------------------------------- */
 
