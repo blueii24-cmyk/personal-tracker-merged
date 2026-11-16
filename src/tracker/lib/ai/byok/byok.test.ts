@@ -542,3 +542,11 @@ it('accepts a clarified water volume but does not replay a saved target on edite
   expect(edited.assistantMessage).toMatch(/could not apply/i);
   expect((await svc.getChatHistory(edited.sessionId)).some((m) => m.preservedActions?.some((a) => a.toolName === 'set_water_target'))).toBe(true);
 });
+
+it('rejects a future water timestamp even when the volume was stated', async () => {
+  const svc = fresh();
+  const r = await run(svc, 'I drank 500 ml water', [{ toolCalls: [call('log_water', { water_ml: 500, consumed_at: '2026-10-30T10:35:00+05:30' })] }, { text: 'Saved!' }]).p;
+  expect(await svc.getMeals()).toHaveLength(0);
+  expect(r.assistantMessage).toMatch(/No water intake was saved/);
+  expect(r.assistantMessage).not.toContain('Saved!');
+});

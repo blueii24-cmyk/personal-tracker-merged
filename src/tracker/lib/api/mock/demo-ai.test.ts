@@ -198,3 +198,11 @@ it('accepts a volume follow-up for water and keeps edit regeneration read-only',
   expect(edited.assistantMessage).toMatch(/did not change or create/i);
   expect(await svc.getMeals()).toHaveLength(1);
 });
+
+it('does not silently drop another tracker request in a mixed water message', async () => {
+  const svc = fresh();
+  const r = await send(svc, 'I drank 500 ml water and spent ₹50 on food');
+  expect(r.assistantMessage).toMatch(/separate messages/);
+  expect(await svc.getMeals()).toHaveLength(0);
+  expect(await svc.getTransactions()).toHaveLength(0);
+});

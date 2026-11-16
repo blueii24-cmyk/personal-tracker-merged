@@ -169,7 +169,7 @@ export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAi
     return reply(`You have recorded ${formatNumber(water)} ml of water ${formatRelativeDayInline(date.key, today)}.${target == null ? ' No daily water target is set.' : ` Your daily target is ${formatNumber(target)} ml${water <= target ? `, with ${formatNumber(target - water)} ml remaining` : `, exceeded by ${formatNumber(water - target)} ml`}.`}`, [summaryAction('nutrition', 'Water · calculated from saved meals')]);
   }
   if (/\bwater\b/.test(lower) && /\b(log|record|add|drank|drink|drunk|had|consumed)\b/.test(lower) && !isCorrection) {
-    if (/\b(?:and|with|also)\b/i.test(message) && /\b(?:ate|eat|egg|rice|roti|meal|food|milk|dal|banana)\b/i.test(message)) return reply('Please log the water and food in separate messages so I do not miss either.');
+    if (/\b(?:and|with|also)\b/i.test(message) && /\b(?:ate|eat|egg|rice|roti|meal|food|milk|dal|banana|spent|paid|bought|received|earned|weight)\b/i.test(message)) return reply('Please log the water and the other item in separate messages so I do not miss either.');
     const portion = waterPortion(message);
     if (!portion) return reply('How much plain water did you drink? Please specify ml or litres.', [{ toolName: 'log_water', status: 'needs_clarification', summary: 'Water volume missing or ambiguous' }]);
     if (/\b(tomorrow|next week|next month)\b/i.test(message)) return reply('I can only log water already consumed.');
