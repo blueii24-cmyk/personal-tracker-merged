@@ -15,6 +15,7 @@ import { TrackerError } from '../errors';
 import type { ChatExchange, ChatReply, ExportBundle, RequestOptions, TrackerService, WriteOptions } from '../tracker-service';
 import { editContext, EDIT_NOTICE } from '@/tracker/features/chat/edit-safety';
 import { confirmRecordUpdate } from '@/tracker/features/chat/confirm-record-update';
+import { resolveWaterFollowUp } from '@/tracker/features/meals/water-language';
 import { runDemoAssistant } from './demo-ai';
 import { migrateDb, pruneProcessed, BACKUP_APP, BACKUP_FORMAT_VERSION } from './persistence';
 import { buildEmptyDb, type DemoDb } from './seed';
@@ -443,13 +444,22 @@ export class MockTrackerService implements TrackerService {
     const guard = <T,>(fn: () => T): T => { if (input.editOfMessageId) throw blocked; return fn(); };
     let result;
     try {
-      result = runDemoAssistant(message, {
+      const history = input.sessionId ? this.db.messages.filter((m) => m.sessionId === input.sessionId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [];
+      const previousUser = [...history].reverse().find((m) => m.role === 'user')?.content;
+      const previousAssistant = [...history].reverse().find((m) => m.role === 'assistant')?.content;
+      const waterMessage = input.editOfMessageId ? message : resolveWaterFollowUp(message, previousUser, previousAssistant);
+      result = runDemoAssistant(waterMessage, {
         now,
         settings: this.db.settings,
         meals: this.db.meals,
         transactions: this.db.transactions,
         weighIns: this.db.weighIns,
         createMeal: (i) => guard(() => this.insertMeal(i, uid(), 'ai')),
+        setWaterTarget: (targetMl) => guard(() => {
+          if (!confirmRecordUpdate('daily water target', { daily_water_target_ml: this.db.settings.dailyWaterTargetMl ?? null }, { daily_water_target_ml: targetMl })) throw declined;
+          this.db.settings = { ...this.db.settings, dailyWaterTargetMl: targetMl };
+          this.persist();
+        }),
         createTransaction: (i) => guard(() => this.insertTransaction(i, uid(), 'ai')),
         createWeighIn: (i) => guard(() => this.insertWeighIn(i, uid(), 'ai')),
         updateTransaction: (id, i) => guard(() => {

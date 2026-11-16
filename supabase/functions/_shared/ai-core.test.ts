@@ -18,7 +18,7 @@ describe('default AI relay core', () => {
     const body = toProviderBody(input, 'configured-model', system);
     expect(body.model).toBe('configured-model');
     expect(body.max_tokens).toBe(1500);
-    expect(body.tools).toHaveLength(9);
+    expect(body.tools).toHaveLength(11);
     expect(JSON.stringify(body)).toContain('You are the logging assistant inside a personal tracker app');
     expect(JSON.stringify(body)).toContain('My usual shorthand');
     expect(JSON.stringify(body)).not.toContain('attacker-selected-model');
@@ -68,4 +68,15 @@ it('sends the server-owned nutrition rules and lookup schema while retaining cli
   expect(system).toContain('not carbs or fat');
   expect(JSON.stringify(body)).toContain('lookup_nutrition');
   expect(JSON.stringify(body)).toContain('Local Indian Nutrition Database Matches');
+});
+
+it('advertises water tools and the explicit target in the server-owned prompt', () => {
+  const input = validateGenerateInput({ ...request(), context: { settings: { ...settings, dailyWaterTargetMl: 2000 }, notes: '' } });
+  const system = buildRelaySystem(input, new Date('2026-11-03T06:00:00Z'));
+  const body = JSON.stringify(toProviderBody(input, 'configured-model', system));
+  expect(system).toContain('2000 ml/day');
+  expect(body).toContain('log_water');
+  expect(body).toContain('set_water_target');
+  const casual = validateGenerateInput({ ...request(), mode: 'casual', context: { settings, notes: '', progress: '' } });
+  expect(toProviderBody(casual, 'configured-model', buildRelaySystem(casual, new Date()))).not.toHaveProperty('tools');
 });

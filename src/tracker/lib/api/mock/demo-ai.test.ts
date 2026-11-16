@@ -159,3 +159,50 @@ it('uses a unique packaged reference with an explicitly stated portion in demo m
   expect(meal?.items[0]).toMatchObject({ quantity: 30, unit: 'g', caloriesKcal: 167.4, proteinG: 1.9, isEstimate: true });
   expect(result.assistantMessage).toContain('unverified');
 });
+
+describe('demo water tracking', () => {
+  it('logs water with dates and answers from saved records', async () => {
+    const svc = fresh();
+    const r = await send(svc, 'I drank 1.5 litres of water yesterday');
+    expect(r.actions[0]).toMatchObject({ toolName: 'log_water', status: 'succeeded' });
+    expect((await svc.getMeals())[0]).toMatchObject({ source: 'ai', items: [{ foodName: 'Water', quantity: 1500, unit: 'ml' }] });
+    expect((await send(svc, 'how much water yesterday?')).assistantMessage).toMatch(/1,500 ml/);
+    expect((await send(svc, 'how much water today?')).assistantMessage).toMatch(/0 ml/);
+  });
+  it('asks for unknown volumes and refuses future water', async () => {
+    const svc = fresh();
+    expect((await send(svc, 'I drank a glass of water')).actions[0]?.status).toBe('needs_clarification');
+    await send(svc, 'I drank 500 ml water tomorrow');
+    expect(await svc.getMeals()).toHaveLength(0);
+  });
+  it('asks before setting the target and never changes it when declined', async () => {
+    const svc = fresh();
+    vi.stubGlobal('confirm', () => false);
+    expect((await send(svc, 'set my water target to 2 litres')).assistantMessage).toMatch(/not confirmed/);
+    expect(((await svc.getUserSettings()).dailyWaterTargetMl ?? null)).toBeNull();
+    vi.stubGlobal('confirm', () => true);
+    const r = await send(svc, 'set my water target to 2 litres');
+    expect(r.actions[0]).toMatchObject({ status: 'succeeded', data: { kind: 'water_target', targetMl: 2000 } });
+    expect((await svc.getUserSettings()).dailyWaterTargetMl).toBe(2000);
+  });
+});
+
+it('accepts a volume follow-up for water and keeps edit regeneration read-only', async () => {
+  const svc = fresh();
+  const first = await send(svc, 'I drank water yesterday');
+  const second = await svc.sendChatMessage({ sessionId: first.sessionId, clientMessageId: `follow-${++n}`, message: '500 ml' });
+  expect(second.actions[0]?.status).toBe('succeeded');
+  const history = await svc.getChatHistory(first.sessionId);
+  const original = history.find((m) => m.role === 'user' && m.content === '500 ml')!;
+  const edited = await svc.sendChatMessage({ sessionId: first.sessionId, clientMessageId: `edit-${++n}`, message: 'I drank 800 ml water', editOfMessageId: original.id });
+  expect(edited.assistantMessage).toMatch(/did not change or create/i);
+  expect(await svc.getMeals()).toHaveLength(1);
+});
+
+it('does not silently drop another tracker request in a mixed water message', async () => {
+  const svc = fresh();
+  const r = await send(svc, 'I drank 500 ml water and spent ₹50 on food');
+  expect(r.assistantMessage).toMatch(/separate messages/);
+  expect(await svc.getMeals()).toHaveLength(0);
+  expect(await svc.getTransactions()).toHaveLength(0);
+});

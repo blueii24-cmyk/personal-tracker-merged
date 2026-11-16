@@ -256,7 +256,7 @@ describe('scoped system prompt', () => {
     expect(buildSystemPrompt(settings, NOW, '  ')).not.toContain('STANDING NOTES');
   });
   it('only offers the tracker and nutrition tools and none that delete', () => {
-    expect(AI_TOOLS.map((t) => t.name).sort()).toEqual(['add_money_transaction', 'get_summary', 'log_meal', 'log_weight', 'lookup_nutrition', 'search_entries', 'update_meal', 'update_transaction', 'update_weight']);
+    expect(AI_TOOLS.map((t) => t.name).sort()).toEqual(['add_money_transaction', 'get_summary', 'log_meal', 'log_water', 'log_weight', 'lookup_nutrition', 'search_entries', 'set_water_target', 'update_meal', 'update_transaction', 'update_weight']);
   });
 });
 
@@ -331,7 +331,7 @@ describe('http, keys and addresses', () => {
     expect(s.headers.authorization).toBe(`Bearer ${KEY}`);
     expect(s.body.max_completion_tokens).toBe(100);
     expect(s.body).not.toHaveProperty('max_tokens');
-    expect((s.body.tools as unknown[]).length).toBe(9);
+    expect((s.body.tools as unknown[]).length).toBe(11);
     expect(out.toolCalls).toEqual([{ id: 'x', name: 'log_weight', arguments: { weight_kg: 71 } }]);
     expect(out.finishReason).toBe('tool_calls');
   });
@@ -476,4 +476,77 @@ describe('confirmation of existing record updates', () => {
     const approved = await run(svc, 'correct the record', [{ toolCalls: [call(spec.name, spec.args)] }, { text: 'Updated.' }]).p;
     expect(approved.actions.some((a) => a.status === 'succeeded' && a.toolName === spec.name)).toBe(true);
   });
+});
+
+describe('water tools', () => {
+  it('saves stated water on the requested day, reports saved totals and is idempotent', async () => {
+    const svc = fresh();
+    const steps = [{ toolCalls: [call('log_water', { water_ml: 500, consumed_at: '2026-10-29T12:00:00+05:30' }), call('log_water', { water_ml: 500, consumed_at: '2026-10-29T12:00:00+05:30' }, 'dup')] }, { text: 'Logged water.' }];
+    const r = await run(svc, 'I drank 500 ml water yesterday', steps, { clientMessageId: 'water-id' }).p;
+    const meals = await svc.getMeals();
+    expect(meals).toHaveLength(1);
+    expect(meals[0]).toMatchObject({ source: 'ai', items: [{ foodName: 'Water', quantity: 500, unit: 'ml' }] });
+    expect(r.actions).toHaveLength(1);
+    expect(r.dashboardInvalidation).toContain('nutrition');
+    await run(svc, 'I drank 500 ml water yesterday', steps, { clientMessageId: 'water-id' }).p;
+    expect(await svc.getMeals()).toHaveLength(1);
+    const read = run(svc, 'how much water yesterday?', [{ toolCalls: [call('get_summary', { domain: 'nutrition', period: 'yesterday' })] }, { text: '500 ml' }]);
+    await read.p;
+    expect(toolResults(read.calls)[0]).toMatchObject({ nutrition: { water_ml: 500 } });
+  });
+  it.each([{ water_ml: 0 }, { water_ml: 300 }, { water_ml: 500, consumed_at: '2027-01-01T12:00:00Z' }])('rejects invalid or guessed intake %o', async (args) => {
+    const svc = fresh();
+    const r = await run(svc, 'I drank a glass of water', [{ toolCalls: [call('log_water', args)] }, { text: 'Saved!' }]).p;
+    expect(await svc.getMeals()).toHaveLength(0);
+    expect(r.assistantMessage).toMatch(/No water intake was saved/);
+  });
+  it('confirms exact explicit targets, rejects a refusal and keeps the existing settings', async () => {
+    const svc = fresh();
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    const r = await run(svc, 'set my water target to 2 litres', [{ toolCalls: [call('set_water_target', { target_ml: 2000 })] }, { toolCalls: [call('set_water_target', { target_ml: 2000 }, 'retry')] }, { text: 'Updated!' }]).p;
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(r.assistantMessage).toMatch(/not confirmed/i);
+    expect(((await svc.getUserSettings()).dailyWaterTargetMl ?? null)).toBeNull();
+    vi.stubGlobal('confirm', () => true);
+    const ok = await run(svc, 'set my water target to 2 litres', [{ toolCalls: [call('set_water_target', { target_ml: 2000 })] }, { text: 'Done.' }]).p;
+    expect((await svc.getUserSettings()).dailyWaterTargetMl).toBe(2000);
+    expect(ok.actions[0]).toMatchObject({ status: 'succeeded', recordIds: ['settings'], data: { kind: 'water_target', targetMl: 2000 } });
+    const read = run(svc, 'water today', [{ toolCalls: [call('get_summary', { domain: 'nutrition', period: 'today' })] }, { text: 'Done' }]);
+    await read.p;
+    expect(toolResults(read.calls)[0]).toMatchObject({ nutrition: { daily_water_target_ml: 2000 } });
+  });
+  it.each(['set my water target', 'what should my water target be?', 'do not set my water target to 2 litres', 'set my water target to 3 litres'])('does not change an unrequested target: %s', async (message) => {
+    const svc = fresh();
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
+    const r = await run(svc, message, [{ toolCalls: [call('set_water_target', { target_ml: 2000 })] }, { text: 'Updated!' }]).p;
+    expect(confirm).not.toHaveBeenCalled();
+    expect(((await svc.getUserSettings()).dailyWaterTargetMl ?? null)).toBeNull();
+    expect(r.assistantMessage).toMatch(/target was not changed/i);
+  });
+});
+
+it('accepts a clarified water volume but does not replay a saved target on edited messages', async () => {
+  const svc = fresh();
+  const first = await run(svc, 'I drank water', [{ text: 'How much water in ml?' }]).p;
+  const r = await run(svc, '500 ml', [{ toolCalls: [call('log_water', { water_ml: 500 })] }, { text: 'Saved.' }], { sessionId: first.sessionId }).p;
+  expect(r.actions[0]?.status).toBe('succeeded');
+  vi.stubGlobal('confirm', () => true);
+  const target = await run(svc, 'set my water target to 2 litres', [{ toolCalls: [call('set_water_target', { target_ml: 2000 })] }, { text: 'Saved' }], { sessionId: first.sessionId }).p;
+  const history = await svc.getChatHistory(target.sessionId);
+  const original = history.find((m) => m.role === 'user' && m.content === 'set my water target to 2 litres')!;
+  const scriptedModel = scripted([{ toolCalls: [call('set_water_target', { target_ml: 3000 })] }, { text: 'Changed' }]);
+  const edited = await runByokChat({ service: svc, config: CONFIG, apiKey: KEY, input: { message: 'set my water target to 3 litres', clientMessageId: `edit-${++n}`, sessionId: target.sessionId, editOfMessageId: original.id }, adapter: scriptedModel.adapter, now: () => NOW });
+  expect((await svc.getUserSettings()).dailyWaterTargetMl).toBe(2000);
+  expect(edited.assistantMessage).toMatch(/could not apply/i);
+  expect((await svc.getChatHistory(edited.sessionId)).some((m) => m.preservedActions?.some((a) => a.toolName === 'set_water_target'))).toBe(true);
+});
+
+it('rejects a future water timestamp even when the volume was stated', async () => {
+  const svc = fresh();
+  const r = await run(svc, 'I drank 500 ml water', [{ toolCalls: [call('log_water', { water_ml: 500, consumed_at: '2026-10-30T10:35:00+05:30' })] }, { text: 'Saved!' }]).p;
+  expect(await svc.getMeals()).toHaveLength(0);
+  expect(r.assistantMessage).toMatch(/No water intake was saved/);
+  expect(r.assistantMessage).not.toContain('Saved!');
 });

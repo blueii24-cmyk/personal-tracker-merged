@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { requestedWaterTargetMl, waterPortion } from '@/tracker/features/meals/water-language';
+import { waterMealInput } from '@/tracker/features/meals/water';
 import { findNutritionMatchesForMessage } from '@/tracker/lib/nutrition/lookup';
 import { categoryTotals, filterTransactions, lastNDaysRange, totalByType, trackedBalance, budgetSummary } from '@/tracker/features/transactions/calculations';
 import { categoryLabel } from '@/tracker/features/transactions/categories';
@@ -25,6 +27,8 @@ export interface ToolEnv {
   service: TrackerService;
   settings: UserSettings;
   now: Date;
+  /** Current user turn, not saved notes or tool text. */
+  userMessage?: string;
 }
 
 export type Invalidation = 'nutrition' | 'finance' | 'weight' | 'history';
@@ -74,6 +78,8 @@ export const SCHEMAS = {
     occurred_at: isoStamp.nullish(),
   }),
   log_weight: z.object({ weight_kg: num, recorded_at: isoStamp.nullish(), notes: text(500).nullish() }),
+  log_water: z.object({ water_ml: num.refine((n) => n > 0 && n <= 100_000, 'must be between 0 and 100,000 ml'), consumed_at: isoStamp.nullish() }),
+  set_water_target: z.object({ target_ml: num.refine((n) => n > 0 && n <= 100_000, 'must be between 0 and 100,000 ml') }),
   lookup_nutrition: z.object({ query: text(1000).min(1) }),
   get_summary: z.object({
     domain: z.enum(['all', 'nutrition', 'finance', 'weight']),
@@ -117,7 +123,7 @@ export const SCHEMAS = {
 
 export type ToolName = keyof typeof SCHEMAS;
 export const isToolName = (n: string): n is ToolName => Object.hasOwn(SCHEMAS, n);
-const WRITE_TOOLS = new Set<string>(['log_meal', 'add_money_transaction', 'log_weight', 'update_transaction', 'update_meal', 'update_weight']);
+const WRITE_TOOLS = new Set<string>(['log_meal', 'log_water', 'set_water_target', 'add_money_transaction', 'log_weight', 'update_transaction', 'update_meal', 'update_weight']);
 export const isWriteTool = (n: string) => WRITE_TOOLS.has(n);
 
 /* -------------------------------- helpers -------------------------------- */
@@ -153,6 +159,7 @@ function mealToModel(m: Meal, tz: string) {
     items: m.items.map((i) => ({ food: i.foodName, quantity: i.quantity, unit: i.unit, kcal: i.caloriesKcal, protein_g: i.proteinG })),
     known_kcal: t.caloriesKcal,
     known_protein_g: round1(t.proteinG),
+    water_ml: t.waterMl,
     items_without_calories: t.unknownCalorieItems,
     notes: m.notes,
   };
@@ -169,6 +176,7 @@ const mealToInput = (m: Meal): MealInput => ({
 /* ------------------------------- executors ------------------------------- */
 
 async function logMeal(a: z.infer<typeof SCHEMAS.log_meal>, env: ToolEnv): Promise<ToolOutcome> {
+  if (a.items.some((item) => item.food_name.trim().toLowerCase() === 'water')) return reject('Log plain water separately with log_water, so its stated volume can be verified.', {}, 'needs_clarification');
   const eatenAt = instant(a.eaten_at, env.now);
   const bad = a.eaten_at ? whenError(a.eaten_at, env.now) : null;
   if (bad) return reject(bad);
@@ -194,6 +202,36 @@ async function logMeal(a: z.infer<typeof SCHEMAS.log_meal>, env: ToolEnv): Promi
     write: true,
     invalidation: ['nutrition', 'history'],
   };
+}
+
+async function logWater(a: z.infer<typeof SCHEMAS.log_water>, env: ToolEnv): Promise<ToolOutcome> {
+  const stated = waterPortion(env.userMessage ?? '');
+  if (!stated || Math.abs(stated.waterMl - a.water_ml) > 0.000001) return reject('Please provide the amount of plain water in ml or litres.', {}, 'needs_clarification');
+  if (a.consumed_at && Date.parse(a.consumed_at) > env.now.getTime()) return reject('Water intake cannot be in the future.');
+  const bad = a.consumed_at ? whenError(a.consumed_at, env.now) : null;
+  if (bad) return reject(bad);
+  const eatenAt = instant(a.consumed_at, env.now);
+  const input = waterMealInput(a.water_ml, dateKeyInTz(eatenAt, env.settings.timezone), env.settings.timezone, env.now);
+  input.eatenAt = eatenAt;
+  const meal = await env.service.createMeal(input, { source: 'ai' });
+  return { status: 'succeeded', summary: `Water · ${formatNumber(a.water_ml)} ml`,
+    modelContent: { ok: true, saved: mealToModel(meal, env.settings.timezone) },
+    recordIds: [meal.id], payload: { kind: 'meal', operation: 'created', mealId: meal.id }, write: true, invalidation: ['nutrition', 'history'] };
+}
+
+async function setWaterTarget(a: z.infer<typeof SCHEMAS.set_water_target>, env: ToolEnv): Promise<ToolOutcome> {
+  const requested = requestedWaterTargetMl(env.userMessage ?? '');
+  if (requested === null || Math.abs(requested - a.target_ml) > 0.000001) {
+    return reject('An explicit matching water target with a unit is required.', {}, 'needs_clarification');
+  }
+  const before = (await env.service.getUserSettings()).dailyWaterTargetMl ?? null;
+  if (!confirmRecordUpdate('daily water target', { daily_water_target_ml: before }, { daily_water_target_ml: a.target_ml })) {
+    return reject('Water target update not confirmed. No settings were changed.');
+  }
+  const saved = await env.service.updateUserSettings({ dailyWaterTargetMl: a.target_ml });
+  return { status: 'succeeded', summary: `Water target · ${formatNumber(a.target_ml)} ml/day`,
+    modelContent: { ok: true, previous_target_ml: before, daily_water_target_ml: saved.dailyWaterTargetMl, note: 'Saved locally; cloud sync follows the account sync status.' },
+    recordIds: ['settings'], payload: { kind: 'water_target', operation: 'updated', targetMl: a.target_ml }, write: true, invalidation: ['nutrition'] };
 }
 
 async function addTransaction(a: z.infer<typeof SCHEMAS.add_money_transaction>, env: ToolEnv): Promise<ToolOutcome> {
@@ -265,13 +303,14 @@ async function getSummary(a: z.infer<typeof SCHEMAS.get_summary>, env: ToolEnv):
   const range = { from: r.from, to: r.to };
   const days = diffDays(r.to, r.from) + 1;
   const out: Record<string, unknown> = { ok: true, period: r.label, from: r.from, to: r.to, days };
-  const s = env.settings;
+  const s = await env.service.getUserSettings();
 
   if (a.domain === 'all' || a.domain === 'nutrition') {
     const meals = await env.service.getMeals(range);
     const t = nutritionTotals(meals);
     out.nutrition = {
-      meals: t.mealCount, known_kcal: Math.round(t.caloriesKcal), known_protein_g: round1(t.proteinG),
+      meals: t.mealCount, known_kcal: Math.round(t.caloriesKcal), known_protein_g: round1(t.proteinG), water_ml: t.waterMl, daily_water_target_ml: s.dailyWaterTargetMl ?? null,
+      ...(days === 1 && s.dailyWaterTargetMl != null ? { water_ml_remaining_vs_target: round1(s.dailyWaterTargetMl - t.waterMl) } : {}),
       items_without_calories: t.unknownCalorieItems, items_without_protein: t.unknownProteinItems, values_are_estimates: t.hasEstimates,
       ...(days > 1 ? { avg_kcal_per_day_with_meals: meals.length ? Math.round(t.caloriesKcal / new Set(meals.map((m) => dateKeyInTz(m.eatenAt, tz))).size) : null } : {}),
       target_kcal: s.dailyCalorieTarget, target_protein_g: s.dailyProteinTargetG,
@@ -452,6 +491,8 @@ export async function executeTool(name: string, rawArgs: Record<string, unknown>
   }
   try {
     switch (name) {
+      case 'log_water': return await logWater(parsed.data as z.infer<typeof SCHEMAS.log_water>, env);
+      case 'set_water_target': return await setWaterTarget(parsed.data as z.infer<typeof SCHEMAS.set_water_target>, env);
       case 'log_meal': return await logMeal(parsed.data as z.infer<typeof SCHEMAS.log_meal>, env);
       case 'add_money_transaction': return await addTransaction(parsed.data as z.infer<typeof SCHEMAS.add_money_transaction>, env);
       case 'log_weight': return await logWeight(parsed.data as z.infer<typeof SCHEMAS.log_weight>, env);

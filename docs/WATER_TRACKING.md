@@ -15,3 +15,17 @@ change does not apply the migration to production.
 Older app versions do not understand the new target; update all devices before changing it
 and verify sync. Normal conflict rules still apply; this is not a multi-device sync or data
 integrity certification.
+
+## Chat
+
+In Log Mode, the built-in assistant and model tools can log plain water given in ml or
+litres and answer water questions from saved meal records. Unspecified glass sizes are
+not guessed; provide a volume. A daily target change requires an explicit amount and
+confirmation. Edited-message regeneration remains read-only, and a change to chat text
+does not undo a saved entry. Casual Mode remains read-only.
+
+The default AI relay requires the updated `ai-chat` Edge Function to be deployed before
+it can offer the new water tools. This source change does not deploy that function; BYOK
+uses the client tools, and the local demo assistant does not require a relay. The target
+column migration above is also still required for account sync. Provider tool calls and
+live device/cloud sync have not been certified by local tests.
