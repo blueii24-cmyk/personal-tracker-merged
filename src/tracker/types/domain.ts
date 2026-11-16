@@ -45,6 +45,12 @@ export interface Meal {
   items: FoodItem[];
 }
 
+/** A lightweight water entry is stored as an editable Water meal item in millilitres. */
+export interface WaterIntakeInput {
+  waterMl: number;
+  date: DateKey;
+}
+
 export type FoodItemInput = Omit<FoodItem, 'id'>;
 export interface MealInput {
   mealType: MealType;
@@ -119,6 +125,8 @@ export interface UserSettings {
   /** `null` = the user has not set a target; the UI must not invent one. */
   dailyCalorieTarget: number | null;
   dailyProteinTargetG: number | null;
+  /** Missing on older settings; null means no target. */
+  dailyWaterTargetMl?: number | null;
   monthlyBudget: number | null;
   targetWeightKg: number | null;
   weightUnit: WeightUnit;
@@ -156,6 +164,8 @@ export interface NutritionTotals {
   itemCount: number;
   caloriesKcal: number;
   proteinG: number;
+  /** Drinking water recorded explicitly as Water in ml/litres, not inferred from other foods. */
+  waterMl: number;
   /** Items whose calories/protein are unknown (excluded from the totals). */
   unknownCalorieItems: number;
   unknownProteinItems: number;

@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { TrackerService } from '@/tracker/lib/api/tracker-service';
 import { toTrackerError, type TrackerError } from '@/tracker/lib/api/errors';
+import { waterMealInput } from '@/tracker/features/meals/water';
 import { todayKey } from '@/tracker/lib/formatting/dates';
 import type {
-  AiStatus, DashboardSummary, Meal, MealInput, Transaction, TransactionInput, UserSettings, UserSettingsInput, WeighIn, WeighInInput,
+  AiStatus, DashboardSummary, Meal, MealInput, Transaction, TransactionInput, UserSettings, UserSettingsInput, WaterIntakeInput, WeighIn, WeighInInput,
 } from '@/tracker/types/domain';
 
 type Status = 'loading' | 'ready' | 'error';
@@ -26,6 +27,7 @@ export interface TrackerApi extends TrackerState {
   timezone: string;
   refresh: () => Promise<void>;
   createMeal: (i: MealInput) => Promise<Meal>;
+  logWater: (input: WaterIntakeInput) => Promise<Meal>;
   updateMeal: (id: string, i: MealInput) => Promise<Meal>;
   deleteMeal: (id: string) => Promise<() => Promise<void>>;
   createTransaction: (i: TransactionInput) => Promise<Transaction>;
@@ -117,6 +119,12 @@ export function TrackerProvider({ service, children }: { service: TrackerService
       timezone,
       refresh,
       createMeal: (i) => after(service.createMeal(i)),
+      logWater: async ({ waterMl, date }) => {
+        const saved = await service.createMeal(waterMealInput(waterMl, date, timezone, new Date()));
+        // A refresh failure after a successful write must not suggest the user retry the write.
+        await refresh().catch(() => undefined);
+        return saved;
+      },
       updateMeal: (id, i) => after(service.updateMeal(id, i)),
       deleteMeal: (id) => {
         const prev = state.meals.find((m) => m.id === id);

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/tracker/lib/cn';
 
-export type RingTone = 'fuel' | 'protein' | 'money' | 'danger';
+export type RingTone = 'fuel' | 'protein' | 'water' | 'money' | 'danger';
 
 export interface RingSpec {
   /** 0..1. `null` means there is no target, so the ring stays empty. */
@@ -13,6 +13,7 @@ export interface RingSpec {
 const strokes: Record<RingTone, string> = {
   fuel: 'stroke-fuel-mark',
   protein: 'stroke-protein-mark',
+  water: 'stroke-[#5B9BD5]',
   money: 'stroke-money-mark',
   danger: 'stroke-danger',
 };
@@ -31,7 +32,7 @@ interface ActivityRingsProps {
 
 /**
  * Concentric progress rings in the style of activity-tracker apps. The rings sweep in on first paint and
- * re-sweep when their value changes. Rounded caps, tonal tracks, no gradients.
+ * re-sweep when their value changes. Rounded caps, neutral tracks, no gradients.
  */
 export function ActivityRings({ rings, size = 148, stroke = 12, gap = 5, center, className, 'aria-label': ariaLabel }: ActivityRingsProps) {
   const [on, setOn] = useState(false);

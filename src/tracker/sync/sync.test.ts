@@ -395,3 +395,51 @@ describe('row mapping', () => {
     expect(JSON.stringify(srow)).not.toMatch(/api.?key/i);
   });
 });
+
+describe('water sync compatibility', () => {
+  it('round-trips water using the existing meal row and keeps legacy settings payloads compatible', async () => {
+    const { waterMealInput } = await import('@/tracker/features/meals/water');
+    const { nutritionTotals } = await import('@/tracker/features/meals/calculations');
+    const input = waterMealInput(250, '2026-03-10', 'Asia/Kolkata', clock());
+    const saved: Meal = { ...input, id: 'water-meal', source: 'manual', items: input.items.map((x) => ({ ...x, id: 'water-item' })) };
+    const row = toRow('meal', saved, { updatedAt: clock().toISOString(), deleted: false, baseRev: 0 }, U1.id);
+    const items = (row.items as Array<Record<string, unknown>>).map((x, position) => ({ ...x, position }));
+    expect(nutritionTotals([fromRow('meal', row, items) as Meal]).waterMl).toBe(250);
+    const legacy = toRow('settings', buildEmptyDb().settings, { updatedAt: clock().toISOString(), deleted: false, baseRev: 0 }, U1.id);
+    expect(legacy).not.toHaveProperty('daily_water_target_ml');
+    const settings = { ...buildEmptyDb().settings, dailyWaterTargetMl: 2000 };
+    const mapped = toRow('settings', settings, { updatedAt: clock().toISOString(), deleted: false, baseRev: 0 }, U1.id);
+    expect(mapped.daily_water_target_ml).toBe(2000);
+    expect(fromRow('settings', mapped)).toMatchObject({ dailyWaterTargetMl: 2000 });
+    expect(toRow('settings', { ...settings, dailyWaterTargetMl: null }, { updatedAt: clock().toISOString(), deleted: false, baseRev: 1 }, U1.id)).toHaveProperty('daily_water_target_ml', null);
+  });
+  it('keeps water and the target when merging guest settings into an empty account', async () => {
+    const { waterMealInput } = await import('@/tracker/features/meals/water');
+    const s = dev('water-merge.');
+    const water = await s.createMeal(waterMealInput(500, '2026-03-10', 'Asia/Kolkata', clock()));
+    await s.updateUserSettings({ dailyWaterTargetMl: 2000 });
+    await sign(s);
+    await s.mergeGuest();
+    await s.syncNow();
+    expect((await s.getMeals()).map((m) => m.id)).toContain(water.id);
+    expect((await s.getUserSettings()).dailyWaterTargetMl).toBe(2000);
+    expect(cloud.live(U1.id, 'meal')).toHaveLength(1);
+    expect(cloud.live(U1.id, 'settings')).toMatchObject([{ dailyWaterTargetMl: 2000 }]);
+  });
+  it('syncs two devices and preserves water through deletion and restore', async () => {
+    const { waterMealInput } = await import('@/tracker/features/meals/water');
+    const { nutritionTotals } = await import('@/tracker/features/meals/calculations');
+    const a = dev('water-a.');
+    const b = dev('water-b.');
+    await sign(a); await sign(b);
+    const water = await a.createMeal(waterMealInput(250, '2026-03-10', 'Asia/Kolkata', clock()));
+    await a.updateUserSettings({ dailyWaterTargetMl: 1800 });
+    await a.syncNow(); await b.syncNow();
+    expect(nutritionTotals(await b.getMeals()).waterMl).toBe(250);
+    expect((await b.getUserSettings()).dailyWaterTargetMl).toBe(1800);
+    tick(); await b.deleteMeal(water.id); await b.syncNow(); await a.syncNow();
+    expect(nutritionTotals(await a.getMeals()).waterMl).toBe(0);
+    tick(); await a.restoreMeal(water); await a.syncNow(); await b.syncNow();
+    expect(nutritionTotals(await b.getMeals()).waterMl).toBe(250);
+  });
+});

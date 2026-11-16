@@ -47,6 +47,7 @@ export function toRow(kind: Kind, data: unknown, m: Meta, userId: string): Row {
       return {
         ...base, id: 'settings', display_name: x.displayName, email: x.email, timezone: x.timezone, opening_balance_paise: paise(x.openingBalance),
         daily_calorie_target: x.dailyCalorieTarget, daily_protein_target_g: x.dailyProteinTargetG,
+        ...(x.dailyWaterTargetMl !== undefined ? { daily_water_target_ml: x.dailyWaterTargetMl } : {}),
         monthly_budget_paise: x.monthlyBudget === null ? null : paise(x.monthlyBudget), target_weight_kg: x.targetWeightKg,
         weight_unit: x.weightUnit, preferred_ai_provider: x.preferredAiProvider, preferred_ai_model: x.preferredAiModel,
       };
@@ -94,6 +95,7 @@ export function fromRow(kind: Kind, r: Row, items: Row[] = []): unknown {
       return {
         displayName: r.display_name, email: r.email, timezone: r.timezone, currency: 'INR', openingBalance: fromPaise(r.opening_balance_paise),
         dailyCalorieTarget: numOrNull(r.daily_calorie_target), dailyProteinTargetG: numOrNull(r.daily_protein_target_g),
+        ...(Object.hasOwn(r, 'daily_water_target_ml') ? { dailyWaterTargetMl: numOrNull(r.daily_water_target_ml) } : {}),
         monthlyBudget: r.monthly_budget_paise === null ? null : fromPaise(r.monthly_budget_paise), targetWeightKg: numOrNull(r.target_weight_kg),
         weightUnit: r.weight_unit, preferredAiProvider: r.preferred_ai_provider, preferredAiModel: r.preferred_ai_model ?? null,
       };
