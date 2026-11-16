@@ -157,3 +157,23 @@ describe('MockTrackerService storage safety', () => {
     expect((await svc.getMeals()).length).toBe(exported.meals.length);
   });
 });
+
+describe('water persistence', () => {
+  it('persists water and the target across reload, backup, delete and restore', async () => {
+    const { waterMealInput } = await import('@/tracker/features/meals/water');
+    const { nutritionTotals } = await import('@/tracker/features/meals/calculations');
+    const now = new Date('2026-10-31T19:00:00Z');
+    const service = new MockTrackerService(() => now, 'water-reload');
+    const water = await service.createMeal(waterMealInput(500, '2026-11-01', 'Asia/Kolkata', now));
+    await service.updateUserSettings({ dailyWaterTargetMl: 2000 });
+    const reopened = new MockTrackerService(() => now, 'water-reload');
+    expect((await reopened.getDashboardSummary()).nutritionToday.waterMl).toBe(500);
+    expect((await reopened.getUserSettings()).dailyWaterTargetMl).toBe(2000);
+    const backup = await reopened.exportData();
+    expect(nutritionTotals(backup.meals).waterMl).toBe(500);
+    await reopened.deleteMeal(water.id);
+    expect((await reopened.getDashboardSummary()).nutritionToday.waterMl).toBe(0);
+    await reopened.restoreMeal(water);
+    expect((await reopened.getDashboardSummary()).nutritionToday.waterMl).toBe(500);
+  });
+});

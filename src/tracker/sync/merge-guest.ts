@@ -26,7 +26,7 @@ export interface MergePlan {
 }
 
 const MERGE_KINDS: Kind[] = ['chatSession', 'meal', 'transaction', 'weighIn', 'chatMessage', 'calendarEvent'];
-const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as Array<keyof UserSettings>;
+const SETTING_KEYS: Array<keyof UserSettings> = [...Object.keys(DEFAULT_SETTINGS) as Array<keyof UserSettings>, 'dailyWaterTargetMl'];
 
 /** Preserve fields the user actually changed, not untouched legacy/default values. */
 function changedSettings(settings: UserSettings): Partial<UserSettings> {

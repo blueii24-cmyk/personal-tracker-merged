@@ -10,12 +10,12 @@ interface RowProps {
   unit: string;
   consumed: number;
   target: number | null;
-  tone: 'fuel' | 'protein';
+  tone: 'fuel' | 'protein' | 'water';
   /** Shown with "~" when the figure is an estimate. */
   estimate: boolean;
 }
 
-const dots = { fuel: 'bg-fuel-mark', protein: 'bg-protein-mark' };
+const dots = { fuel: 'bg-fuel-mark', protein: 'bg-protein-mark', water: 'bg-[#5B9BD5]' };
 
 function ProgressRow({ label, unit, consumed, target, tone, estimate }: RowProps) {
   const p = progressOf(consumed, target);
@@ -54,22 +54,27 @@ interface NutritionProgressProps {
   totals: NutritionTotals;
   calorieTarget: number | null;
   proteinTarget: number | null;
+  waterTarget: number | null;
 }
 
 /** Calories and protein against the user's own targets. Unknown values are excluded, never counted as zero. */
-export function NutritionProgress({ totals, calorieTarget, proteinTarget }: NutritionProgressProps) {
+export function NutritionProgress({ totals, calorieTarget, proteinTarget, waterTarget }: NutritionProgressProps) {
   const caveat = nutritionCaveat(totals);
   const cal = progressOf(totals.caloriesKcal, calorieTarget);
   const pro = progressOf(totals.proteinG, proteinTarget);
+  const water = progressOf(totals.waterMl, waterTarget);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 items-center gap-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-7">
         <ActivityRings
           className="justify-self-center sm:justify-self-start"
-          aria-label="Today's calories and protein against your targets"
+          aria-label="Calories, protein and water against your targets"
+          stroke={10}
+          gap={4}
           rings={[
             { ratio: calorieTarget == null ? null : cal.ratio, tone: 'fuel', label: 'Calories progress' },
             { ratio: proteinTarget == null ? null : pro.ratio, tone: 'protein', label: 'Protein progress' },
+            { ratio: waterTarget == null ? null : water.ratio, tone: 'water', label: 'Water progress' },
           ]}
           center={
             <span className="tnum leading-none">
@@ -84,6 +89,7 @@ export function NutritionProgress({ totals, calorieTarget, proteinTarget }: Nutr
         <div className="space-y-4">
           <ProgressRow label="Calories" unit="kcal" consumed={totals.caloriesKcal} target={calorieTarget} tone="fuel" estimate={totals.hasEstimates} />
           <ProgressRow label="Protein" unit="g" consumed={totals.proteinG} target={proteinTarget} tone="protein" estimate={totals.hasEstimates} />
+          <ProgressRow label="Water" unit="ml" consumed={totals.waterMl} target={waterTarget} tone="water" estimate />
         </div>
       </div>
       {caveat && <p className="text-xs text-ink-3">{caveat === 'Estimated values.' ? '~ Nutrition figures are estimates.' : `~ Estimates. ${caveat}`}</p>}

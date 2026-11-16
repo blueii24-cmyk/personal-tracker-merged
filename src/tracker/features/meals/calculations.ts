@@ -8,10 +8,21 @@ export function mealsOnDate(meals: readonly Meal[], date: DateKey, tz: string): 
     .sort((a, b) => a.eatenAt.localeCompare(b.eatenAt));
 }
 
+/** Water is a normal meal item so it retains existing IDs, sync, edit, undo and backups.
+ * Count only explicit plain water with a known metric volume; never infer from other drinks. */
+export function waterIntakeMl(item: Pick<FoodItem, 'foodName' | 'quantity' | 'unit'>): number {
+  if (item.foodName.trim().toLowerCase() !== 'water' || item.quantity == null || !Number.isFinite(item.quantity) || item.quantity <= 0) return 0;
+  const unit = item.unit?.trim().toLowerCase();
+  if (unit === 'ml' || unit === 'millilitre' || unit === 'millilitres' || unit === 'milliliter' || unit === 'milliliters') return item.quantity;
+  if (unit === 'l' || unit === 'litre' || unit === 'litres' || unit === 'liter' || unit === 'liters') return item.quantity * 1000;
+  return 0;
+}
+
 /** Sum known calories/protein. Unknown (null) values are excluded and counted, never treated as zero. */
 export function nutritionTotals(meals: readonly Meal[]): NutritionTotals {
   let kcal10 = 0;
   let protein10 = 0;
+  let water10 = 0;
   let itemCount = 0;
   let unknownCalorieItems = 0;
   let unknownProteinItems = 0;
@@ -19,6 +30,7 @@ export function nutritionTotals(meals: readonly Meal[]): NutritionTotals {
   for (const meal of meals) {
     for (const item of meal.items) {
       itemCount += 1;
+      water10 += Math.round(waterIntakeMl(item) * 10);
       if (item.caloriesKcal == null) unknownCalorieItems += 1;
       else kcal10 += Math.round(item.caloriesKcal * 10);
       if (item.proteinG == null) unknownProteinItems += 1;
@@ -31,6 +43,7 @@ export function nutritionTotals(meals: readonly Meal[]): NutritionTotals {
     itemCount,
     caloriesKcal: kcal10 / 10,
     proteinG: protein10 / 10,
+    waterMl: water10 / 10,
     unknownCalorieItems,
     unknownProteinItems,
     hasEstimates,

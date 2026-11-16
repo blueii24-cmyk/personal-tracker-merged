@@ -45,7 +45,7 @@ export function BulkingOverview({ summary, settings, meals, weighIns, today, onL
         }
       />
       <CardBody className="flex flex-1 flex-col gap-5">
-        <NutritionProgress totals={summary.nutritionToday} calorieTarget={settings.dailyCalorieTarget} proteinTarget={settings.dailyProteinTargetG} />
+        <NutritionProgress totals={summary.nutritionToday} calorieTarget={settings.dailyCalorieTarget} proteinTarget={settings.dailyProteinTargetG} waterTarget={settings.dailyWaterTargetMl ?? null} />
 
         <div className="grid grid-cols-2 gap-3">
           <MetricCard tonal label="Current weight" icon={Scale} tone="weight" value={formatWeight(w.latest?.weightKg, unit)} detail={w.latest ? `Logged ${formatRelativeDayInline(dateKeyInTz(w.latest.recordedAt, tz), today)}` : 'No weigh-ins yet'} />

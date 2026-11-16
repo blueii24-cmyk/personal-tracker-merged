@@ -86,6 +86,7 @@ export const bulkingSettingsSchema = z.object({
     .min(1, 'Must be at least 1')
     .max(20_000, 'Must be 20,000 or less')
     .nullable(),
+  dailyWaterTargetMl: z.number({ error: 'Water target must be a number' }).positive('Must be greater than zero').max(100_000, 'Must be 100,000 ml or less').nullable(),
   dailyProteinTargetG: z.number({ error: 'Protein must be a number' }).min(0).max(1_000, 'Must be 1,000 g or less').nullable(),
   targetWeightKg: z.number({ error: 'Weight must be a number' }).min(1).max(1_000).nullable(),
   weightUnit: z.enum(['kg', 'lb']),

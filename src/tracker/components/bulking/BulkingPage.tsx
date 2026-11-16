@@ -7,6 +7,8 @@ import { Card, CardBody, CardHeader } from '@/tracker/components/ui/Card';
 import { EmptyState, ErrorState } from '@/tracker/components/ui/EmptyState';
 import { Segmented } from '@/tracker/components/ui/Segmented';
 import { Skeleton } from '@/tracker/components/ui/Skeleton';
+import { useToast } from '@/tracker/components/ui/Toast';
+import { toTrackerError } from '@/tracker/lib/api/errors';
 import { DateStepper } from '@/tracker/components/ui/Steppers';
 import { PageContainer } from '@/tracker/components/layout/AppShell';
 import { PageHeader } from '@/tracker/components/layout/PageHeader';
@@ -30,6 +32,8 @@ type Range = '30' | '90' | 'all';
 
 export default function BulkingPage() {
   const t = useTracker();
+  const { toast } = useToast();
+  const [waterSaving, setWaterSaving] = useState(false);
   const [params, setParams] = useSearchParams();
   const [mealDialog, setMealDialog] = useState<{ meal?: Meal } | null>(null);
   const [editWeighIn, setEditWeighIn] = useState<WeighIn | null>(null);
@@ -51,6 +55,19 @@ export default function BulkingPage() {
       },
       { replace: true },
     );
+
+  const addWater = async (amount: number) => {
+    if (waterSaving) return;
+    setWaterSaving(true);
+    try {
+      await t.logWater({ waterMl: amount, date: selected });
+      toast({ title: `${amount} ml water logged`, tone: 'success' });
+    } catch (error) {
+      toast({ title: "Couldn't log water", description: toTrackerError(error).message, tone: 'error' });
+    } finally {
+      setWaterSaving(false);
+    }
+  };
 
   const tz = t.timezone;
   const dayMeals = useMemo(() => mealsOnDate(t.meals, selected, tz), [t.meals, selected, tz]);
@@ -89,7 +106,11 @@ export default function BulkingPage() {
           <Card>
             <CardHeader as="h2" title={`${formatRelativeDay(selected, t.today)}'s nutrition`} description={formatFullDate(selected)} />
             <CardBody>
-              <NutritionProgress totals={totals} calorieTarget={s.dailyCalorieTarget} proteinTarget={s.dailyProteinTargetG} />
+              <NutritionProgress totals={totals} calorieTarget={s.dailyCalorieTarget} proteinTarget={s.dailyProteinTargetG} waterTarget={s.dailyWaterTargetMl ?? null} />
+              <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="Log water for selected day">
+                <span className="mr-1 text-[13px] font-medium text-ink-2">Log water</span>
+                {[250, 500].map((amount) => <Button key={amount} size="sm" disabled={waterSaving} onClick={() => void addWater(amount)}>+{amount} ml</Button>)}
+              </div>
             </CardBody>
           </Card>
 

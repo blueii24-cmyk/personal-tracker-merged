@@ -620,6 +620,7 @@ export class MockTrackerService implements TrackerService {
   async updateUserSettings(input: UserSettingsInput): Promise<UserSettings> {
     await wait(LATENCY_MS);
     if (input.timezone && !isValidTimezone(input.timezone)) throw new TrackerError('VALIDATION', 'Choose a valid timezone.', { retryable: false });
+    if (input.dailyWaterTargetMl != null && (!Number.isFinite(input.dailyWaterTargetMl) || input.dailyWaterTargetMl <= 0 || input.dailyWaterTargetMl > 100_000)) throw new TrackerError('VALIDATION', 'Water target must be between 1 and 100,000 ml.', { retryable: false });
     for (const v of [input.dailyCalorieTarget, input.dailyProteinTargetG, input.monthlyBudget, input.targetWeightKg, input.openingBalance]) {
       if (v != null && !Number.isFinite(v)) throw new TrackerError('VALIDATION', 'Targets and balances must be real numbers.', { retryable: false });
     }

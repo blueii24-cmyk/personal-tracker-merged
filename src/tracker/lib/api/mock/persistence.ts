@@ -104,6 +104,7 @@ export function normalizeSettings(raw: unknown): UserSettings {
     openingBalance: isNum(raw.openingBalance) && Math.abs(raw.openingBalance) <= 1_000_000_000 ? raw.openingBalance : 0,
     dailyCalorieTarget: target(raw.dailyCalorieTarget, 100_000, base.dailyCalorieTarget),
     dailyProteinTargetG: target(raw.dailyProteinTargetG, 10_000, base.dailyProteinTargetG),
+    ...(Object.hasOwn(raw, 'dailyWaterTargetMl') ? { dailyWaterTargetMl: target(raw.dailyWaterTargetMl, 100_000, null) } : {}),
     monthlyBudget: target(raw.monthlyBudget, 1_000_000_000, base.monthlyBudget),
     targetWeightKg: target(raw.targetWeightKg, 1000, base.targetWeightKg),
     weightUnit: raw.weightUnit === 'lb' ? 'lb' : raw.weightUnit === 'kg' ? 'kg' : base.weightUnit,

@@ -25,7 +25,7 @@ export default function SettingsPage() {
   // without discarding unsaved edits in the other sections.
   const s = t.settings;
   const profileKey = JSON.stringify([s.displayName, s.email, s.timezone]);
-  const bulkingKey = JSON.stringify([s.dailyCalorieTarget, s.dailyProteinTargetG, s.targetWeightKg, s.weightUnit]);
+  const bulkingKey = JSON.stringify([s.dailyCalorieTarget, s.dailyProteinTargetG, s.dailyWaterTargetMl, s.targetWeightKg, s.weightUnit]);
   const budgetKey = JSON.stringify([s.monthlyBudget, s.openingBalance]);
   return (
     <PageContainer>

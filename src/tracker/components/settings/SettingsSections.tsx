@@ -134,6 +134,7 @@ export function BulkingSection({ settings }: { settings: UserSettings }) {
   const [unit, setUnit] = useState<WeightUnit>(settings.weightUnit);
   const [kcal, setKcal] = useState(numStr(settings.dailyCalorieTarget));
   const [protein, setProtein] = useState(numStr(settings.dailyProteinTargetG));
+  const [water, setWater] = useState(numStr(settings.dailyWaterTargetMl));
   const targetStored = settings.targetWeightKg == null ? '' : String(round(kgToUnit(settings.targetWeightKg, settings.weightUnit)));
   const [target, setTarget] = useState(targetStored);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -149,14 +150,15 @@ export function BulkingSection({ settings }: { settings: UserSettings }) {
     const n = toNullable(target);
     return n == null || Number.isNaN(n) ? n : round(unitToKg(n, unit), 2);
   })();
-  const dirty = unit !== settings.weightUnit || toNullable(kcal) !== settings.dailyCalorieTarget || toNullable(protein) !== settings.dailyProteinTargetG || targetKg !== settings.targetWeightKg;
+  const dirty = unit !== settings.weightUnit || toNullable(kcal) !== settings.dailyCalorieTarget || toNullable(protein) !== settings.dailyProteinTargetG || toNullable(water) !== (settings.dailyWaterTargetMl ?? null) || targetKg !== settings.targetWeightKg;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const p = bulkingSettingsSchema.safeParse({ dailyCalorieTarget: toNullable(kcal), dailyProteinTargetG: toNullable(protein), targetWeightKg: targetKg, weightUnit: unit });
+    const p = bulkingSettingsSchema.safeParse({ dailyCalorieTarget: toNullable(kcal), dailyProteinTargetG: toNullable(protein), dailyWaterTargetMl: toNullable(water), targetWeightKg: targetKg, weightUnit: unit });
     if (!p.success) return setErrors(fieldErrors(p.error));
     setErrors({});
-    await save(p.data, 'Bulking settings saved');
+    const { dailyWaterTargetMl, ...other } = p.data;
+    await save({ ...other, ...(dailyWaterTargetMl !== (settings.dailyWaterTargetMl ?? null) ? { dailyWaterTargetMl } : {}) }, 'Bulking settings saved');
   };
   return (
     <SettingsCard id="bulking" title="Bulking" description="Your own daily targets. The app never suggests numbers for you." dirty={dirty} saving={saving} onSubmit={submit} error={error}
@@ -167,6 +169,9 @@ export function BulkingSection({ settings }: { settings: UserSettings }) {
         </Field>
         <Field label="Daily protein target (g)" optional error={errors.dailyProteinTargetG}>
           {({ id, invalid, describedBy }) => <Input id={id} inputMode="decimal" value={protein} onChange={(e) => setProtein(e.target.value)} placeholder="Not set" aria-invalid={invalid} aria-describedby={describedBy} />}
+        </Field>
+        <Field label="Daily water target (ml)" optional error={errors.dailyWaterTargetMl}>
+          {({ id, invalid, describedBy }) => <Input id={id} inputMode="decimal" value={water} onChange={(e) => setWater(e.target.value)} placeholder="Not set" aria-invalid={invalid} aria-describedby={describedBy} />}
         </Field>
         <Field label={`Target weight (${unit})`} optional error={errors.targetWeightKg} hint="Shown as a dashed line on weight charts.">
           {({ id, invalid, describedBy }) => <Input id={id} inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Not set" aria-invalid={invalid} aria-describedby={describedBy} />}
