@@ -111,3 +111,14 @@ describe('session chat modes', () => {
     expect(api!.mode).toBe('casual');
   });
 });
+
+it('does not handle direct calorie adds as writes in Casual Mode', async () => {
+  const svc = new MockTrackerService(() => now);
+  const reply = await svc.sendChatMessage({ mode: 'casual', clientMessageId: 'casual-calories', message: 'add 3000 cal today' });
+  expect(reply.actions).toEqual([]);
+  expect(await svc.getMeals()).toEqual([]);
+  const adapter: AiProviderAdapter = { providerId: 'openai', async generate() { return { text: 'Switch to Log Mode to save.', finishReason: 'stop', toolCalls: [] }; } };
+  const modelReply = await runByokChat({ service: svc, config, input: { mode: 'casual', clientMessageId: 'casual-model-calories', message: 'add 3000 cal today' }, adapter });
+  expect(modelReply.actions).toEqual([]);
+  expect(await svc.getMeals()).toEqual([]);
+});
