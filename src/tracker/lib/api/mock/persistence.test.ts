@@ -197,3 +197,26 @@ describe('direct calorie entry persistence', () => {
     expect(parseBackup(JSON.stringify(backup)).ok).toBe(true);
   });
 });
+
+describe('bulking target update persistence', () => {
+  it('atomically rolls back settings and receipt when storage fails and safely retries', async () => {
+    const { vi } = await import('vitest');
+    vi.stubGlobal('confirm', () => true);
+    try {
+      const svc = new MockTrackerService(() => NOW);
+      const request = { clientMessageId: 'targets-atomic', message: 'Set my daily bulking targets: calories: 2450 kcal, protein: 90 g, water: 3 L' };
+      store.full = true;
+      await expect(svc.sendChatMessage(request)).rejects.toMatchObject({ code: 'STORAGE_FAILED' });
+      expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: null, dailyProteinTargetG: null });
+      expect((await svc.getUserSettings()).dailyWaterTargetMl ?? null).toBeNull();
+      store.full = false;
+      const [first, concurrent] = await Promise.all([svc.sendChatMessage(request), svc.sendChatMessage(request)]);
+      expect(concurrent.assistantMessageId).toBe(first.assistantMessageId);
+      const reloaded = new MockTrackerService(() => NOW);
+      expect(await reloaded.getUserSettings()).toMatchObject({ dailyCalorieTarget: 2450, dailyProteinTargetG: 90, dailyWaterTargetMl: 3000 });
+      expect((await reloaded.sendChatMessage(request)).assistantMessageId).toBe(first.assistantMessageId);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

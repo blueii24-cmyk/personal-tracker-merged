@@ -1,3 +1,4 @@
+import { requestedBulkingTargets, isBulkingTargetRequest } from '@/tracker/features/meals/target-language';
 import { directCalorieRequest, formatDirectCalories } from '@/tracker/features/meals/direct-calories';
 /**
  * Deterministic stand-in for the real AI backend. It only understands a handful of phrasings and
@@ -37,6 +38,7 @@ export interface DemoAiContext {
   weighIns: readonly WeighIn[];
   createMeal(input: MealInput): Meal;
   setWaterTarget(targetMl: number): void;
+  setBulkingTargets(targets: { calories?: number; protein?: number; water?: number }): void;
   createTransaction(input: TransactionInput): Transaction;
   createWeighIn(input: WeighInInput): WeighIn;
   updateTransaction(id: string, input: TransactionInput): Transaction;
@@ -158,6 +160,20 @@ export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAi
   }
   if (isDelete) {
     return reply("I can't delete records from chat yet. Open History, find the entry and use Delete — it asks you to confirm first, and you can undo straight afterwards.");
+  }
+  if (isBulkingTargetRequest(rawMessage)) {
+    const parsed = requestedBulkingTargets(rawMessage)!;
+    const values: { calories?: number; protein?: number; water?: number } = {};
+    const rejected: string[] = [];
+    for (const key of ['calories', 'protein', 'water'] as const) {
+      if (parsed[key] === null) rejected.push(`${key} target`);
+      else if (parsed[key] !== undefined) values[key] = parsed[key];
+    }
+    if (!Object.keys(values).length) return reply('Please clarify the requested target values.', [{ toolName: 'set_bulking_targets', status: 'needs_clarification', summary: 'Target values are missing or invalid' }]);
+    ctx.setBulkingTargets(values);
+    const summary = [values.calories !== undefined ? `Calories ${values.calories} kcal/day` : '', values.protein !== undefined ? `Protein ${values.protein} g/day` : '', values.water !== undefined ? `Water ${values.water} ml/day` : ''].filter(Boolean).join(' · ');
+    return reply(`Updated: ${summary}.${rejected.length ? ` Not changed: ${rejected.join(', ')}. Please clarify those values.` : ''}`,
+      [{ toolName: 'set_bulking_targets', status: 'succeeded', summary, recordIds: ['settings'], data: { kind: 'bulking_targets', operation: 'updated', ...values, ...(rejected.length ? { rejected } : {}) } }], ['nutrition']);
   }
   if (/\bwater\b/.test(lower) && /\b(target|goal)\b/.test(lower) && (!isQuestion || /\b(?:set|change|update|make|adjust)\b/.test(lower))) {
     if (/\b(?:drank|drink|drunk|consumed|log|record)\b/.test(lower)) return reply('Please send the water intake and target change as separate messages.');

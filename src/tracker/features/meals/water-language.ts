@@ -1,3 +1,4 @@
+import { requestedBulkingTargets } from './target-language';
 /** Conservative local parsing used to verify a target change and recognize demo water portions. */
 const words: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, half: 0.5 };
 const volumePattern = /(?<![\w.\-])((?:\d[\d,]*(?:\.\d+)?|one|two|three|four|five|half))\s*(ml|millilit(?:er|re)s?|lit(?:er|re)s?|l)\b/gi;
@@ -11,12 +12,7 @@ function metricVolumes(text: string): number[] {
 
 /** Exactly one stated value associated with an explicit water-goal change, not a question or suggestion. */
 export function requestedWaterTargetMl(message: string): number | null {
-  if (/\b(?:should|recommend|suggest|what|how|don't|do not|never|not|if|maybe)\b/i.test(message)) return null;
-  if (!/\bwater\b/i.test(message) || !/\b(?:target|goal)\b/i.test(message) || !/\b(?:set|change|update|make|adjust|keep|use|is)\b/i.test(message)) return null;
-  const clause = message.split(/[,;\n]|\b(?:and|but)\b/i).find((part) => /\b(?:target|goal)\b/i.test(part));
-  if (!clause) return null;
-  const volumes = metricVolumes(clause);
-  return volumes.length === 1 && Number.isFinite(volumes[0]) && volumes[0]! > 0 && volumes[0]! <= 100_000 ? volumes[0]! : null;
+  return requestedBulkingTargets(message)?.water ?? null;
 }
 
 /** Only plain water with a stated metric volume. */
