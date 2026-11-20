@@ -1,3 +1,4 @@
+import { directCalorieRequest } from '@/tracker/features/meals/direct-calories';
 import { resolveWaterFollowUp } from '@/tracker/features/meals/water-language';
 import { AI_TOOLS } from '../tool-schemas';
 import type { AiProviderAdapter, CanonicalMessage } from '../provider';
@@ -77,11 +78,14 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   if (input.sessionId && !session) throw new TrackerError('SESSION_NOT_FOUND', "That conversation couldn't be found.", { retryable: false });
   const mode = session ? (session.mode === 'casual' ? 'casual' : 'log') : (input.mode ?? 'log');
   if (session && input.mode && input.mode !== mode) throw new TrackerError('INVALID_REQUEST', 'Start a new conversation to change modes.', { retryable: false });
-  const adapter = args.adapter ?? createAdapter(config, apiKey ?? '');
   const settings = await service.getUserSettings();
   const history = input.sessionId ? await service.getChatHistory(input.sessionId) : [];
   if (input.editOfMessageId && !input.sessionId) throw new TrackerError('INVALID_REQUEST', 'A correction needs an existing conversation.', { retryable: false });
   const edit = input.editOfMessageId ? editContext(history, input.editOfMessageId) : null;
+  // A narrowly recognized calorie-only request uses the local, idempotent chat path.
+  // It does not depend on the provider obeying instructions or expose the entry to a relay.
+  if (mode === 'log' && directCalorieRequest(message, clock(), settings.timezone)) return service.sendChatMessage(input, { signal });
+  const adapter = args.adapter ?? createAdapter(config, apiKey ?? '');
   const progress = mode === 'casual' ? await casualContext(service, message, settings) : '';
   const system = mode === 'casual' ? casualSystemPrompt(progress) : buildSystemPrompt(settings, clock(), config.notes);
   const prompt = edit

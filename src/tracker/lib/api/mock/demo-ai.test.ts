@@ -206,3 +206,40 @@ it('does not silently drop another tracker request in a mixed water message', as
   expect(await svc.getMeals()).toHaveLength(0);
   expect(await svc.getTransactions()).toHaveLength(0);
 });
+
+describe('direct calorie entries', () => {
+  it('adds calories without replacing other meals or inventing protein', async () => {
+    const svc = fresh();
+    await send(svc, 'I ate two eggs for lunch');
+    const before = (await svc.getDashboardSummary()).nutritionToday;
+    const r = await send(svc, 'add 3000 cal for today');
+    expect(r.assistantMessage).toBe('Added 3,000 kcal for 2026-10-30.');
+    const after = (await svc.getDashboardSummary()).nutritionToday;
+    expect(after.caloriesKcal - before.caloriesKcal).toBe(3000);
+    expect(after.proteinG).toBe(before.proteinG);
+    expect(after.unknownProteinItems).toBe(before.unknownProteinItems + 1);
+    const saved = (await svc.getMeals()).find((m) => m.id === r.actions[0]?.recordIds?.[0]);
+    expect(saved).toMatchObject({ source: 'ai', items: [{ caloriesKcal: 3000, proteinG: null, isEstimate: false, nutritionSource: 'user_entered' }] });
+    expect(r.dashboardInvalidation).toEqual(expect.arrayContaining(['nutrition', 'history']));
+  });
+  it('supports previous days and rejects future dates without writes', async () => {
+    const svc = fresh();
+    const r = await send(svc, 'add 3000 calories yesterday');
+    expect(r.assistantMessage).toBe('Added 3,000 kcal for 2026-10-29.');
+    expect((await svc.getMeals())[0]?.eatenAt).toContain('2026-10-29');
+    const invalid = await send(svc, 'add 3000 cal on 2027-01-01');
+    expect(invalid.actions[0]?.status).toBe('needs_clarification');
+    expect(await svc.getMeals()).toHaveLength(1);
+  });
+  it('does not repeat concurrent requests and keeps edited messages read-only', async () => {
+    const svc = fresh();
+    const req = { clientMessageId: `direct-${++n}`, message: 'add 3000 cal today' };
+    const [first, concurrent] = await Promise.all([svc.sendChatMessage(req), svc.sendChatMessage(req)]);
+    expect(concurrent.assistantMessageId).toBe(first.assistantMessageId);
+    expect((await svc.sendChatMessage(req)).assistantMessageId).toBe(first.assistantMessageId);
+    const edited = await svc.sendChatMessage({ sessionId: first.sessionId, clientMessageId: `edit-${++n}`, editOfMessageId: first.userMessageId, message: 'add 2000 cal today' });
+    expect(edited.assistantMessage).toContain('did not change or create any records');
+    expect(await svc.getMeals()).toHaveLength(1);
+    expect((await svc.getChatHistory(edited.sessionId)).at(-1)?.preservedActions).toEqual(first.actions);
+  });
+});

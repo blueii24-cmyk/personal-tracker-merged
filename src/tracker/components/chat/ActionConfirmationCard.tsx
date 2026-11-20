@@ -6,6 +6,7 @@ import { Button } from '@/tracker/components/ui/Button';
 import { MealForm, mealTypeLabel } from '@/tracker/components/bulking/MealForm';
 import { WeighInEditDialog } from '@/tracker/components/bulking/WeightCheckIn';
 import { TransactionForm } from '@/tracker/components/budget/TransactionForm';
+import { formatDirectCalories } from '@/tracker/features/meals/direct-calories';
 import { describeFoodItem, mealTotals } from '@/tracker/features/meals/calculations';
 import { categoryLabel } from '@/tracker/features/transactions/categories';
 import { useTracker } from '@/tracker/features/store/TrackerProvider';
@@ -159,7 +160,7 @@ export function ActionConfirmationCard({ action }: { action: AiActionResult }) {
                 <li key={i.id} className="flex items-baseline justify-between gap-3 py-1.5 text-sm">
                   <span className="min-w-0 truncate text-ink">{describeFoodItem(i)}</span>
                   <span className="tnum shrink-0 text-xs text-ink-2">
-                    {i.caloriesKcal == null ? 'kcal unknown' : `~${formatNumber(i.caloriesKcal)} kcal`} · {i.proteinG == null ? 'protein unknown' : `~${Math.round(i.proteinG * 10) / 10} g protein`}
+                    {i.caloriesKcal == null ? 'kcal unknown' : `${i.isEstimate ? '~' : ''}${i.foodName === 'Calories (user-entered)' ? formatDirectCalories(i.caloriesKcal) : formatNumber(i.caloriesKcal)} kcal`} · {i.proteinG == null ? 'protein unknown' : `${i.isEstimate ? '~' : ''}${Math.round(i.proteinG * 10) / 10} g protein`}
                   </span>
                 </li>
               ))}
@@ -169,7 +170,7 @@ export function ActionConfirmationCard({ action }: { action: AiActionResult }) {
                 {totals.unknownCalorieItems || totals.unknownProteinItems ? 'Known total' : 'Total'} {totals.hasEstimates && <Badge tone="fuel">Estimated</Badge>}
               </span>
               <span className="font-semibold text-ink">
-                {totals.unknownCalorieItems === totals.itemCount ? 'kcal unknown' : `~${formatNumber(totals.caloriesKcal)} kcal`} · {totals.unknownProteinItems === totals.itemCount ? 'protein unknown' : `~${Math.round(totals.proteinG * 10) / 10} g protein`}
+                {totals.unknownCalorieItems === totals.itemCount ? 'kcal unknown' : `${totals.hasEstimates ? '~' : ''}${meal.items.length === 1 && meal.items[0]?.foodName === 'Calories (user-entered)' ? formatDirectCalories(totals.caloriesKcal) : formatNumber(totals.caloriesKcal)} kcal`} · {totals.unknownProteinItems === totals.itemCount ? 'protein unknown' : `${totals.hasEstimates ? '~' : ''}${Math.round(totals.proteinG * 10) / 10} g protein`}
               </span>
             </div>
             {meal.notes && <p className="pb-1 text-xs text-ink-2">{meal.notes}</p>}

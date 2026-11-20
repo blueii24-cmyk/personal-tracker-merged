@@ -15,6 +15,7 @@ import { TrackerError } from '../errors';
 import type { ChatExchange, ChatReply, ExportBundle, RequestOptions, TrackerService, WriteOptions } from '../tracker-service';
 import { editContext, EDIT_NOTICE } from '@/tracker/features/chat/edit-safety';
 import { confirmRecordUpdate } from '@/tracker/features/chat/confirm-record-update';
+import { directCalorieRequest } from '@/tracker/features/meals/direct-calories';
 import { resolveWaterFollowUp } from '@/tracker/features/meals/water-language';
 import { runDemoAssistant } from './demo-ai';
 import { migrateDb, pruneProcessed, BACKUP_APP, BACKUP_FORMAT_VERSION } from './persistence';
@@ -184,7 +185,7 @@ export class MockTrackerService implements TrackerService {
 
   /* ----------------------------- synchronous core ----------------------------- */
 
-  private insertMeal(input: MealInput, id = uid(), source: Meal['source'] = 'manual'): Meal {
+  private insertMeal(input: MealInput, id = uid(), source: Meal['source'] = 'manual', persistNow = true): Meal {
     this.validateMeal(input);
     const meal: Meal = {
       id,
@@ -195,7 +196,7 @@ export class MockTrackerService implements TrackerService {
       items: input.items.map((i) => ({ ...i, id: uid() })),
     };
     this.db.meals.push(meal);
-    this.persist();
+    if (persistNow) this.persist();
     return meal;
   }
   private insertTransaction(input: TransactionInput, id = uid(), source: Transaction['source'] = 'manual'): Transaction {
@@ -439,6 +440,8 @@ export class MockTrackerService implements TrackerService {
       });
     }
     const now = this.now();
+    // Persist direct calorie entry and its idempotency receipt in the same local snapshot.
+    const atomicCalories = directCalorieRequest(message, now, this.db.settings.timezone)?.kind === 'add';
     const blocked = new Error('Edit regeneration is read-only');
     const declined = new Error('Record update not confirmed');
     const guard = <T,>(fn: () => T): T => { if (input.editOfMessageId) throw blocked; return fn(); };
@@ -454,7 +457,7 @@ export class MockTrackerService implements TrackerService {
         meals: this.db.meals,
         transactions: this.db.transactions,
         weighIns: this.db.weighIns,
-        createMeal: (i) => guard(() => this.insertMeal(i, uid(), 'ai')),
+        createMeal: (i) => guard(() => this.insertMeal(i, uid(), 'ai', !atomicCalories)),
         setWaterTarget: (targetMl) => guard(() => {
           if (!confirmRecordUpdate('daily water target', { daily_water_target_ml: this.db.settings.dailyWaterTargetMl ?? null }, { daily_water_target_ml: targetMl })) throw declined;
           this.db.settings = { ...this.db.settings, dailyWaterTargetMl: targetMl };

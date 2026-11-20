@@ -1,3 +1,4 @@
+import { directCalorieRequest, formatDirectCalories } from '@/tracker/features/meals/direct-calories';
 /**
  * Deterministic stand-in for the real AI backend. It only understands a handful of phrasings and
  * will ask (or decline) rather than invent amounts or nutrition. It never talks to a network.
@@ -148,6 +149,12 @@ export function runDemoAssistant(rawMessage: string, ctx: DemoAiContext): DemoAi
 
   if (/^(hi|hello|hey|hii|yo|good (?:morning|afternoon|evening))\b[\s!.]*$/.test(lower) || /\b(what can you do|help|how do (?:i|you) use)\b/.test(lower)) {
     return reply(HELP_TEXT);
+  }
+  const directCalories = directCalorieRequest(message, ctx.now, tz);
+  if (directCalories?.kind === 'clarify') return reply(directCalories.message, [{ toolName: 'log_meal', status: 'needs_clarification', summary: 'Calorie amount or day needs clarification' }]);
+  if (directCalories?.kind === 'add') {
+    const meal = ctx.createMeal(directCalories.input);
+    return reply(directCalories.message, [{ toolName: 'log_meal', status: 'succeeded', summary: `Calories · ${formatDirectCalories(directCalories.calories)} kcal`, recordIds: [meal.id], data: { kind: 'meal', operation: 'created', mealId: meal.id } }], ['nutrition', 'history']);
   }
   if (isDelete) {
     return reply("I can't delete records from chat yet. Open History, find the entry and use Delete — it asks you to confirm first, and you can undo straight afterwards.");

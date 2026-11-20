@@ -550,3 +550,29 @@ it('rejects a future water timestamp even when the volume was stated', async () 
   expect(r.assistantMessage).toMatch(/No water intake was saved/);
   expect(r.assistantMessage).not.toContain('Saved!');
 });
+
+it('handles direct calorie adds locally for configured models without calling or trusting the model', async () => {
+  const svc = fresh();
+  const request = run(svc, 'add 3000 cal for yesterday', [{ text: 'You should eat less instead.' }], { clientMessageId: 'calorie-direct' });
+  const result = await request.p;
+  expect(request.calls).toHaveLength(0);
+  expect(result.assistantMessage).toBe('Added 3,000 kcal for 2026-10-29.');
+  expect((await svc.getMeals())[0]?.items[0]).toMatchObject({ caloriesKcal: 3000, proteinG: null, nutritionSource: 'user_entered' });
+  await run(svc, 'add 3000 cal for yesterday', [{ text: 'Oops' }], { clientMessageId: 'calorie-direct' }).p;
+  expect(await svc.getMeals()).toHaveLength(1);
+});
+
+it('preserves direct calorie receipts on edit and keeps later model chat available', async () => {
+  const svc = fresh();
+  const original = await run(svc, 'add 3000 cal today', [{ text: 'not called' }]).p;
+  const model = scripted([{ text: 'not called' }]);
+  const edited = await runByokChat({ service: svc, config: CONFIG, apiKey: KEY, input: { sessionId: original.sessionId, clientMessageId: `cal-edit-${++n}`, editOfMessageId: original.userMessageId, message: 'add 2000 cal today' }, adapter: model.adapter, now: () => NOW });
+  expect(model.calls).toHaveLength(0);
+  expect(edited.assistantMessage).toContain('did not change or create any records');
+  expect((await svc.getChatHistory(edited.sessionId)).at(-1)?.preservedActions).toEqual(original.actions);
+  expect((await svc.getMeals())[0]?.items[0]?.caloriesKcal).toBe(3000);
+  const normal = run(svc, 'I spent 60 rupees on fare', [{ toolCalls: [call('add_money_transaction', { transaction_type: 'expense', amount: 60, category: 'transport', description: 'Fare' })] }, { text: 'Logged.' }], { sessionId: edited.sessionId });
+  await normal.p;
+  expect(normal.calls.length).toBeGreaterThan(0);
+  expect(await svc.getTransactions()).toHaveLength(1);
+});

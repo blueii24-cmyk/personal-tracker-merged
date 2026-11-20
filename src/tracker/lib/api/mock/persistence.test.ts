@@ -177,3 +177,23 @@ describe('water persistence', () => {
     expect((await reopened.getDashboardSummary()).nutritionToday.waterMl).toBe(500);
   });
 });
+
+describe('direct calorie entry persistence', () => {
+  it('rolls back entry and receipt together if storage fails and retries exactly once', async () => {
+    const svc = new MockTrackerService(() => NOW);
+    const request = { clientMessageId: 'calorie-atomic', message: 'add 3000 cal today' };
+    store.full = true;
+    await expect(svc.sendChatMessage(request)).rejects.toMatchObject({ code: 'STORAGE_FAILED' });
+    expect(await svc.getMeals()).toHaveLength(0);
+    expect(await svc.findChatReply(request.clientMessageId)).toBeNull();
+    store.full = false;
+    const first = await svc.sendChatMessage(request);
+    const reloaded = new MockTrackerService(() => NOW);
+    const retry = await reloaded.sendChatMessage(request);
+    expect(retry.assistantMessageId).toBe(first.assistantMessageId);
+    expect(await reloaded.getMeals()).toHaveLength(1);
+    const backup = await reloaded.exportData();
+    expect(backup.meals[0]?.items[0]).toMatchObject({ caloriesKcal: 3000, proteinG: null, nutritionSource: 'user_entered' });
+    expect(parseBackup(JSON.stringify(backup)).ok).toBe(true);
+  });
+});
