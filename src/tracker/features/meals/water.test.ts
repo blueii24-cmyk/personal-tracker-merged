@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mealsOnDate, nutritionTotals, progressOf, waterIntakeMl } from './calculations';
+import { requestedWaterTargetMl } from './water-language';
+import { requestedBulkingTargets } from './target-language';
 import { waterMealInput } from './water';
 import { bulkingSettingsSchema } from '@/tracker/lib/validation/schemas';
 import { normalizeMeal, normalizeSettings, parseBackup } from '@/tracker/lib/api/mock/persistence';
@@ -46,5 +48,33 @@ describe('water intake', () => {
     expect(bulkingSettingsSchema.safeParse({ ...base, dailyWaterTargetMl: null }).success).toBe(true);
     expect(bulkingSettingsSchema.safeParse({ ...base, dailyWaterTargetMl: 2000 }).success).toBe(true);
     for (const n of [-1, 0, 100001, Infinity, NaN]) expect(bulkingSettingsSchema.safeParse({ ...base, dailyWaterTargetMl: n }).success).toBe(false);
+  });
+});
+
+
+describe('explicit multi-target requests', () => {
+  const prose = 'Set my calorie target to 2450 kcal, my protein target to 90 g, and update my daily water target to 3000 ml.';
+  const list = 'Set my daily bulking targets to:\n- Calories: 2450 kcal\n- Protein: 90 g\n- Water: 3 L';
+  it.each([prose, list, 'SET MY DAILY BULKING TARGETS TO: Calories: 2,450 kcal, Protein: 90 g, Water: 3 liters', 'Set my water target to 3 litres, and my calorie target to 2450 kcal'])('extracts only the water volume from %s', (message) => {
+    expect(requestedWaterTargetMl(message)).toBe(3000);
+  });
+  it('extracts all explicitly listed values', () => {
+    expect(requestedBulkingTargets(prose)).toEqual({ calories: 2450, protein: 90, water: 3000 });
+    expect(requestedBulkingTargets(list)).toEqual({ calories: 2450, protein: 90, water: 3000 });
+    expect(requestedBulkingTargets('set my daily targets: calories 2450 kcal protein 90 g water 3L')).toEqual({ calories: 2450, protein: 90, water: 3000 });
+  });
+  it.each([
+    'set my daily water target to 3000',
+    'set my daily water target to -3 L',
+    'set my water target to 2 L or 3 L',
+    'set my water target to 3 or 2000 ml',
+    'set my calorie target to 2450 kcal and drink 3 L water',
+    'what should my water target be at 3 L?',
+    'do not set my water target to 3000 ml',
+  ])('does not authorize ambiguous or unrelated water: %s', (message) => {
+    expect(requestedWaterTargetMl(message)).toBeNull();
+  });
+  it('retains valid fields when the water target has no unit', () => {
+    expect(requestedBulkingTargets('Set my daily bulking targets: Calories: 2450 kcal, Protein: 90 g, Water: 3000')).toEqual({ calories: 2450, protein: 90, water: null });
   });
 });

@@ -69,6 +69,15 @@ export const AI_TOOLS: CanonicalToolDefinition[] = [
     }, ['water_ml']),
   },
   {
+    name: 'set_bulking_targets',
+    description: 'Update only the explicit daily calorie, protein or water targets requested by the user. Each field is validated independently; the app asks for confirmation. Convert water litres to ml. Never invent targets.',
+    inputSchema: objectSchema({
+      calories_kcal: { type: 'number', minimum: 1, maximum: 20000 },
+      protein_g: { type: 'number', minimum: 0, maximum: 1000 },
+      water_ml: { type: 'number', exclusiveMinimum: 0, maximum: 100000 },
+    }, []),
+  },
+  {
     name: 'set_water_target',
     description: 'Set the daily water target only when the user explicitly asks for a specific target in ml or litres. Never recommend or invent a target. The app requires the user to confirm the change.',
     inputSchema: objectSchema({ target_ml: { type: 'number', exclusiveMinimum: 0, maximum: 100000 } }, ['target_ml']),

@@ -73,12 +73,25 @@ export function ActionConfirmationCard({ action }: { action: AiActionResult }) {
     return (
       <p className="mt-2 flex items-center gap-2 text-xs text-ink-3">
         <CircleSlash className="size-3.5 shrink-0" aria-hidden />
-        No changes were made{action.summary ? ` · ${action.summary}` : ''}
+        Not saved{action.summary ? ` · ${action.summary}` : ''}
       </p>
     );
   }
   if (!payload || payload.kind === 'summary') {
     return <p className="mt-2 text-xs text-ink-3">Calculated from your saved records{action.summary ? ` · ${action.summary}` : ''}</p>;
+  }
+
+  if (payload.kind === 'bulking_targets') {
+    return (
+      <Shell icon={<CheckCircle2 className="size-4" aria-hidden />} title="Daily bulking targets" status={<SavedStatus updated />} footer={<Link to="/settings#bulking" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium text-ink-2 hover:bg-hover hover:text-ink">View in Settings <ExternalLink className="size-3.5" aria-hidden /></Link>}>
+        <dl>
+          {payload.calories !== undefined && <Row label="Calories">{formatNumber(payload.calories)} kcal/day</Row>}
+          {payload.protein !== undefined && <Row label="Protein">{payload.protein} g/day</Row>}
+          {payload.water !== undefined && <Row label="Water">{formatNumber(payload.water)} ml/day</Row>}
+        </dl>
+        {!!payload.rejected?.length && <p className="pb-1 text-xs text-ink-3">Not changed: {payload.rejected.join(', ')}.</p>}
+      </Shell>
+    );
   }
 
   if (payload.kind === 'water_target') {

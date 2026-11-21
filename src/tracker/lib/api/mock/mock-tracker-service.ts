@@ -15,6 +15,7 @@ import { TrackerError } from '../errors';
 import type { ChatExchange, ChatReply, ExportBundle, RequestOptions, TrackerService, WriteOptions } from '../tracker-service';
 import { editContext, EDIT_NOTICE } from '@/tracker/features/chat/edit-safety';
 import { confirmRecordUpdate } from '@/tracker/features/chat/confirm-record-update';
+import { isBulkingTargetRequest } from '@/tracker/features/meals/target-language';
 import { directCalorieRequest } from '@/tracker/features/meals/direct-calories';
 import { resolveWaterFollowUp } from '@/tracker/features/meals/water-language';
 import { runDemoAssistant } from './demo-ai';
@@ -458,6 +459,16 @@ export class MockTrackerService implements TrackerService {
         transactions: this.db.transactions,
         weighIns: this.db.weighIns,
         createMeal: (i) => guard(() => this.insertMeal(i, uid(), 'ai', !atomicCalories)),
+        setBulkingTargets: (targets) => guard(() => {
+          const before = { calories: this.db.settings.dailyCalorieTarget, protein: this.db.settings.dailyProteinTargetG, water: this.db.settings.dailyWaterTargetMl ?? null };
+          if (!confirmRecordUpdate('daily bulking targets', before, targets)) throw declined;
+          this.db.settings = { ...this.db.settings,
+            ...(targets.calories !== undefined ? { dailyCalorieTarget: targets.calories } : {}),
+            ...(targets.protein !== undefined ? { dailyProteinTargetG: targets.protein } : {}),
+            ...(targets.water !== undefined ? { dailyWaterTargetMl: targets.water } : {}),
+          };
+          // The exchange and settings are persisted together by commitExchange.
+        }),
         setWaterTarget: (targetMl) => guard(() => {
           if (!confirmRecordUpdate('daily water target', { daily_water_target_ml: this.db.settings.dailyWaterTargetMl ?? null }, { daily_water_target_ml: targetMl })) throw declined;
           this.db.settings = { ...this.db.settings, dailyWaterTargetMl: targetMl };

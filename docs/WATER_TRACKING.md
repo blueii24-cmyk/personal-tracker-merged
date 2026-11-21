@@ -29,3 +29,10 @@ it can offer the new water tools. This source change does not deploy that functi
 uses the client tools, and the local demo assistant does not require a relay. The target
 column migration above is also still required for account sync. Provider tool calls and
 live device/cloud sync have not been certified by local tests.
+
+Calorie, protein and water target changes in Log Mode require explicit values and user
+confirmation. The app can handle an explicitly listed multi-target request locally; it
+validates each field independently, leaving any invalid or unstated field unchanged and
+reporting partial updates. Water targets must include a metric volume unit. The shared
+model tool schema also supports these updates; deploying an updated relay remains a
+separate production step. Local saves are not evidence of successful cloud sync.

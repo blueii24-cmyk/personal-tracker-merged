@@ -1,3 +1,4 @@
+import { isBulkingTargetRequest } from '@/tracker/features/meals/target-language';
 import { directCalorieRequest } from '@/tracker/features/meals/direct-calories';
 import { resolveWaterFollowUp } from '@/tracker/features/meals/water-language';
 import { AI_TOOLS } from '../tool-schemas';
@@ -84,7 +85,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
   const edit = input.editOfMessageId ? editContext(history, input.editOfMessageId) : null;
   // A narrowly recognized calorie-only request uses the local, idempotent chat path.
   // It does not depend on the provider obeying instructions or expose the entry to a relay.
-  if (mode === 'log' && directCalorieRequest(message, clock(), settings.timezone)) return service.sendChatMessage(input, { signal });
+  if (mode === 'log' && (directCalorieRequest(message, clock(), settings.timezone) || isBulkingTargetRequest(message))) return service.sendChatMessage(input, { signal });
   const adapter = args.adapter ?? createAdapter(config, apiKey ?? '');
   const progress = mode === 'casual' ? await casualContext(service, message, settings) : '';
   const system = mode === 'casual' ? casualSystemPrompt(progress) : buildSystemPrompt(settings, clock(), config.notes);
@@ -153,7 +154,7 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
           calls++;
           mealOnlyTransactionBlocked = true;
           outcome = { status: 'rejected', summary: 'No transaction requested', modelContent: { ok: false, error: 'MRP is not a transaction request, or the user requested meals only. Do not record or update a transaction.' }, write: false, invalidation: [] };
-        } else if (updateDeclined && ['update_transaction', 'update_meal', 'update_weight', 'set_water_target'].includes(call.name)) {
+        } else if (updateDeclined && ['update_transaction', 'update_meal', 'update_weight', 'set_water_target', 'set_bulking_targets'].includes(call.name)) {
           calls++;
           outcome = { status: 'rejected', summary: 'Update not confirmed', modelContent: { ok: false, error: 'The user declined an update; do not ask again in this message.' }, write: false, invalidation: [] };
         } else if (calls >= MAX_TOOL_CALLS) {
@@ -207,10 +208,17 @@ export async function runByokChat(args: RunChatArgs): Promise<ChatReply> {
 
   const waterFailed = done.some((a) => a.name === 'log_water' && a.status !== 'succeeded') && !done.some((a) => a.name === 'log_water' && a.status === 'succeeded');
   const targetFailed = done.some((a) => a.name === 'set_water_target' && a.status !== 'succeeded') && !done.some((a) => a.name === 'set_water_target' && a.status === 'succeeded');
-  if (!interrupted && !editWriteBlocked && (waterFailed || targetFailed)) {
-    const explanation = [waterFailed ? 'No water intake was saved. Please provide the amount in ml or litres and a valid past date.' : '', targetFailed ? 'The water target was not changed.' : '', updateDeclined ? 'The proposed update was not confirmed.' : ''].filter(Boolean).join(' ');
+  const bulkingFailed = done.some((a) => a.name === 'set_bulking_targets' && a.status !== 'succeeded') && !done.some((a) => a.name === 'set_bulking_targets' && a.status === 'succeeded');
+  if (!interrupted && !editWriteBlocked && (waterFailed || targetFailed || bulkingFailed)) {
+    const explanation = [waterFailed ? 'No water intake was saved. Please provide the amount in ml or litres and a valid past date.' : '', targetFailed ? 'The water target was not changed.' : '', bulkingFailed ? 'That bulking target update was not saved; please specify the target values.' : '', updateDeclined ? 'The proposed update was not confirmed.' : ''].filter(Boolean).join(' ');
     assistantMessage = actions.some((a) => a.status === 'succeeded' && a.recordIds?.length) ? fallbackText(actions, explanation) : explanation;
   }
+
+  const partialTargets = actions.flatMap((action) => {
+    const data = action.data as { kind?: string; rejected?: string[] } | undefined;
+    return action.status === 'succeeded' && data?.kind === 'bulking_targets' ? (data.rejected ?? []) : [];
+  });
+  if (partialTargets.length && !editWriteBlocked) assistantMessage = fallbackText(actions, `Not changed: ${partialTargets.join(', ')}. Please clarify those values.`);
 
   if (mealOnlyTransactionBlocked) assistantMessage += mealOnly ? '\n\nNo transaction was recorded: you requested meals only.' : '\n\nNo transaction was recorded; the price was treated as a food detail.';
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { requestedBulkingTargets } from '@/tracker/features/meals/target-language';
 import { requestedWaterTargetMl, waterPortion } from '@/tracker/features/meals/water-language';
 import { waterMealInput } from '@/tracker/features/meals/water';
 import { findNutritionMatchesForMessage } from '@/tracker/lib/nutrition/lookup';
@@ -79,6 +80,7 @@ export const SCHEMAS = {
   }),
   log_weight: z.object({ weight_kg: num, recorded_at: isoStamp.nullish(), notes: text(500).nullish() }),
   log_water: z.object({ water_ml: num.refine((n) => n > 0 && n <= 100_000, 'must be between 0 and 100,000 ml'), consumed_at: isoStamp.nullish() }),
+  set_bulking_targets: z.object({ calories_kcal: z.unknown().optional(), protein_g: z.unknown().optional(), water_ml: z.unknown().optional() }),
   set_water_target: z.object({ target_ml: num.refine((n) => n > 0 && n <= 100_000, 'must be between 0 and 100,000 ml') }),
   lookup_nutrition: z.object({ query: text(1000).min(1) }),
   get_summary: z.object({
@@ -123,7 +125,7 @@ export const SCHEMAS = {
 
 export type ToolName = keyof typeof SCHEMAS;
 export const isToolName = (n: string): n is ToolName => Object.hasOwn(SCHEMAS, n);
-const WRITE_TOOLS = new Set<string>(['log_meal', 'log_water', 'set_water_target', 'add_money_transaction', 'log_weight', 'update_transaction', 'update_meal', 'update_weight']);
+const WRITE_TOOLS = new Set<string>(['log_meal', 'log_water', 'set_water_target', 'set_bulking_targets', 'add_money_transaction', 'log_weight', 'update_transaction', 'update_meal', 'update_weight']);
 export const isWriteTool = (n: string) => WRITE_TOOLS.has(n);
 
 /* -------------------------------- helpers -------------------------------- */
@@ -217,6 +219,36 @@ async function logWater(a: z.infer<typeof SCHEMAS.log_water>, env: ToolEnv): Pro
   return { status: 'succeeded', summary: `Water · ${formatNumber(a.water_ml)} ml`,
     modelContent: { ok: true, saved: mealToModel(meal, env.settings.timezone) },
     recordIds: [meal.id], payload: { kind: 'meal', operation: 'created', mealId: meal.id }, write: true, invalidation: ['nutrition', 'history'] };
+}
+
+async function setBulkingTargets(a: z.infer<typeof SCHEMAS.set_bulking_targets>, env: ToolEnv): Promise<ToolOutcome> {
+  const requested = requestedBulkingTargets(env.userMessage ?? '');
+  const rejected: string[] = [];
+  const values: { calories?: number; protein?: number; water?: number } = {};
+  const specs = [
+    { key: 'calories' as const, raw: a.calories_kcal, label: 'calorie target', valid: (n: number) => Number.isInteger(n) && n >= 1 && n <= 20_000 },
+    { key: 'protein' as const, raw: a.protein_g, label: 'protein target', valid: (n: number) => n >= 0 && n <= 1000 },
+    { key: 'water' as const, raw: a.water_ml, label: 'water target', valid: (n: number) => n > 0 && n <= 100_000 },
+  ];
+  for (const spec of specs) {
+    if (spec.raw === undefined) continue;
+    const value = num.safeParse(spec.raw);
+    if (!value.success || !spec.valid(value.data) || requested?.[spec.key] == null || Math.abs(requested[spec.key]! - value.data) > 0.000001) rejected.push(spec.label);
+    else values[spec.key] = value.data;
+  }
+  if (!Object.keys(values).length) return reject(`No matching explicit target values. Not changed: ${rejected.join(', ') || 'targets'}.`, { rejected }, 'needs_clarification');
+  const current = await env.service.getUserSettings();
+  const before = { calories: current.dailyCalorieTarget, protein: current.dailyProteinTargetG, water: current.dailyWaterTargetMl ?? null };
+  if (!confirmRecordUpdate('daily bulking targets', before, values)) return reject('Bulking targets update not confirmed. No settings were changed.');
+  const saved = await env.service.updateUserSettings({
+    ...(values.calories !== undefined ? { dailyCalorieTarget: values.calories } : {}),
+    ...(values.protein !== undefined ? { dailyProteinTargetG: values.protein } : {}),
+    ...(values.water !== undefined ? { dailyWaterTargetMl: values.water } : {}),
+  });
+  const summary = [values.calories !== undefined ? `Calories ${values.calories} kcal/day` : '', values.protein !== undefined ? `Protein ${values.protein} g/day` : '', values.water !== undefined ? `Water ${values.water} ml/day` : ''].filter(Boolean).join(' · ');
+  return { status: 'succeeded', summary, recordIds: ['settings'], write: true, invalidation: ['nutrition'],
+    payload: { kind: 'bulking_targets', operation: 'updated', ...values, ...(rejected.length ? { rejected } : {}) },
+    modelContent: { ok: true, saved: { calories: saved.dailyCalorieTarget, protein: saved.dailyProteinTargetG, water: saved.dailyWaterTargetMl ?? null }, rejected, note: 'Only confirmed matching fields were changed; account sync follows sync status.' } };
 }
 
 async function setWaterTarget(a: z.infer<typeof SCHEMAS.set_water_target>, env: ToolEnv): Promise<ToolOutcome> {
@@ -492,6 +524,7 @@ export async function executeTool(name: string, rawArgs: Record<string, unknown>
   try {
     switch (name) {
       case 'log_water': return await logWater(parsed.data as z.infer<typeof SCHEMAS.log_water>, env);
+      case 'set_bulking_targets': return await setBulkingTargets(parsed.data as z.infer<typeof SCHEMAS.set_bulking_targets>, env);
       case 'set_water_target': return await setWaterTarget(parsed.data as z.infer<typeof SCHEMAS.set_water_target>, env);
       case 'log_meal': return await logMeal(parsed.data as z.infer<typeof SCHEMAS.log_meal>, env);
       case 'add_money_transaction': return await addTransaction(parsed.data as z.infer<typeof SCHEMAS.add_money_transaction>, env);

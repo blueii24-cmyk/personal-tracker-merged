@@ -265,4 +265,5 @@ export type ActionPayload =
   | { kind: 'transaction'; operation: 'created' | 'updated'; transactionId: string; previousAmount?: number }
   | { kind: 'weigh_in'; operation: 'created' | 'updated'; weighInId: string }
   | { kind: 'water_target'; operation: 'updated'; targetMl: number }
+  | { kind: 'bulking_targets'; operation: 'updated'; calories?: number; protein?: number; water?: number; rejected?: string[] }
   | { kind: 'summary'; domain: 'nutrition' | 'finance' | 'weight' | 'all' };

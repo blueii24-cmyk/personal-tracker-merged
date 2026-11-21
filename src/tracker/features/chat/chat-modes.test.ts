@@ -122,3 +122,13 @@ it('does not handle direct calorie adds as writes in Casual Mode', async () => {
   expect(modelReply.actions).toEqual([]);
   expect(await svc.getMeals()).toEqual([]);
 });
+
+it('keeps multi-target requests read-only in Casual Mode', async () => {
+  const svc = new MockTrackerService(() => now);
+  const adapter: AiProviderAdapter = { providerId: 'openai', async generate() { return { text: 'Use Log Mode.', finishReason: 'stop', toolCalls: [] }; } };
+  const message = 'Set my daily bulking targets: calories: 2450 kcal, protein: 90 g, water: 3 L';
+  const reply = await runByokChat({ service: svc, config, input: { mode: 'casual', clientMessageId: 'casual-targets', message }, adapter });
+  expect(reply.actions).toEqual([]);
+  expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: null, dailyProteinTargetG: null });
+  expect((await svc.getUserSettings()).dailyWaterTargetMl ?? null).toBeNull();
+});

@@ -11,6 +11,7 @@ import { sanitizeSchema, toGeminiContents } from './gemini';
 import { redactKey } from './http';
 import { normalizeBaseUrl, toOpenAiMessages } from './openai';
 import { MAX_ROUNDS, runByokChat, testConnection } from './run-chat';
+import { executeTool } from './tools';
 import { buildSystemPrompt, localIsoNow } from './system-prompt';
 
 const NOW = new Date('2026-10-30T10:30:00+05:30');
@@ -256,7 +257,7 @@ describe('scoped system prompt', () => {
     expect(buildSystemPrompt(settings, NOW, '  ')).not.toContain('STANDING NOTES');
   });
   it('only offers the tracker and nutrition tools and none that delete', () => {
-    expect(AI_TOOLS.map((t) => t.name).sort()).toEqual(['add_money_transaction', 'get_summary', 'log_meal', 'log_water', 'log_weight', 'lookup_nutrition', 'search_entries', 'set_water_target', 'update_meal', 'update_transaction', 'update_weight']);
+    expect(AI_TOOLS.map((t) => t.name).sort()).toEqual(['add_money_transaction', 'get_summary', 'log_meal', 'log_water', 'log_weight', 'lookup_nutrition', 'search_entries', 'set_bulking_targets', 'set_water_target', 'update_meal', 'update_transaction', 'update_weight']);
   });
 });
 
@@ -331,7 +332,7 @@ describe('http, keys and addresses', () => {
     expect(s.headers.authorization).toBe(`Bearer ${KEY}`);
     expect(s.body.max_completion_tokens).toBe(100);
     expect(s.body).not.toHaveProperty('max_tokens');
-    expect((s.body.tools as unknown[]).length).toBe(11);
+    expect((s.body.tools as unknown[]).length).toBe(12);
     expect(out.toolCalls).toEqual([{ id: 'x', name: 'log_weight', arguments: { weight_kg: 71 } }]);
     expect(out.finishReason).toBe('tool_calls');
   });
@@ -575,4 +576,113 @@ it('preserves direct calorie receipts on edit and keeps later model chat availab
   await normal.p;
   expect(normal.calls.length).toBeGreaterThan(0);
   expect(await svc.getTransactions()).toHaveLength(1);
+});
+
+describe('multi-target updates', () => {
+  const messages = [
+    'Set my calorie target to 2450 kcal, my protein target to 90 g, and update my daily water target to 3000 ml.',
+    'Set my daily bulking targets to:\n- Calories: 2450 kcal\n- Protein: 90 g\n- Water: 3 L',
+    'Set my daily bulking targets: calories: 2450 kcal, protein: 90 g, water: 3 liters',
+  ];
+  it.each(messages)('saves every target with confirmation for %s', async (message) => {
+    const svc = fresh();
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
+    const request = run(svc, message, [{ text: 'Model did not comply.' }], { clientMessageId: `multi-${++n}` });
+    const reply = await request.p;
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(request.calls).toHaveLength(0);
+    expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: 2450, dailyProteinTargetG: 90, dailyWaterTargetMl: 3000 });
+    expect(reply.actions[0]).toMatchObject({ status: 'succeeded', data: { kind: 'bulking_targets', calories: 2450, protein: 90, water: 3000 } });
+    expect(reply.dashboardInvalidation).toContain('nutrition');
+  });
+  it('saves valid targets even when a water value has no unit', async () => {
+    const svc = fresh();
+    await svc.updateUserSettings({ dailyWaterTargetMl: 1800 });
+    vi.stubGlobal('confirm', () => true);
+    const result = await run(svc, 'Set my daily bulking targets: calories: 2450 kcal, protein: 90 g, water: 3000', [{ text: 'Saved everything.' }]).p;
+    expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: 2450, dailyProteinTargetG: 90, dailyWaterTargetMl: 1800 });
+    expect(result.assistantMessage).toMatch(/Not changed: water target/);
+    expect(result.actions[0]?.data).toMatchObject({ rejected: ['water target'] });
+  });
+  it.each([3000, 'unknown', -1])('decouples invalid/hallucinated water tool argument %s', async (water) => {
+    const svc = fresh();
+    await svc.updateUserSettings({ dailyWaterTargetMl: 1800 });
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirm);
+    const outcome = await executeTool('set_bulking_targets', { calories_kcal: 2450, protein_g: 90, water_ml: water }, { service: svc, settings: await svc.getUserSettings(), now: NOW, userMessage: 'Set my daily bulking targets: calories: 2450 kcal, protein: 90 g, water: 3000' });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(outcome.status).toBe('succeeded');
+    expect(outcome.payload).toMatchObject({ calories: 2450, protein: 90, rejected: ['water target'] });
+    expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: 2450, dailyProteinTargetG: 90, dailyWaterTargetMl: 1800 });
+  });
+  it('checks exact explicit water values inside the combined tool', async () => {
+    const svc = fresh();
+    vi.stubGlobal('confirm', () => true);
+    const outcome = await executeTool('set_bulking_targets', { calories_kcal: 2450, protein_g: 90, water_ml: 2500 }, { service: svc, settings: await svc.getUserSettings(), now: NOW, userMessage: messages[0] });
+    expect(outcome.payload).toMatchObject({ calories: 2450, protein: 90, rejected: ['water target'] });
+    expect((await svc.getUserSettings()).dailyWaterTargetMl ?? null).toBeNull();
+  });
+  it('does not change anything when confirmation is declined and does not repeat on retry', async () => {
+    const svc = fresh();
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    const r = await run(svc, messages[0]!, [{ text: 'Saved.' }], { clientMessageId: 'target-decline' }).p;
+    await run(svc, messages[0]!, [{ text: 'Saved.' }], { clientMessageId: 'target-decline' }).p;
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(r.assistantMessage).toContain('not confirmed');
+    expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: null, dailyProteinTargetG: null });
+    expect((await svc.getUserSettings()).dailyWaterTargetMl ?? null).toBeNull();
+  });
+  it('keeps edits read-only and preserves the original settings receipt', async () => {
+    const svc = fresh();
+    vi.stubGlobal('confirm', () => true);
+    const first = await run(svc, messages[0]!, [{ text: 'ignored' }]).p;
+    const model = scripted([{ text: 'ignored' }]);
+    const edited = await runByokChat({ service: svc, config: CONFIG, apiKey: KEY, input: { sessionId: first.sessionId, editOfMessageId: first.userMessageId, clientMessageId: `target-edit-${++n}`, message: 'Set my daily bulking targets: calories: 2000 kcal, protein: 80 g, water: 2 L' }, adapter: model.adapter, now: () => NOW });
+    expect(edited.assistantMessage).toContain('did not change or create any records');
+    expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: 2450, dailyProteinTargetG: 90, dailyWaterTargetMl: 3000 });
+    expect((await svc.getChatHistory(edited.sessionId)).at(-1)?.preservedActions).toEqual(first.actions);
+  });
+});
+
+it('validates individual water calls in multi-target prompts and does not accept a mismatched value', async () => {
+  const svc = fresh();
+  const message = 'Set my calorie target to 2450 kcal, my protein target to 90 g, and update my daily water target to 3 liters.';
+  const confirm = vi.fn(() => true);
+  vi.stubGlobal('confirm', confirm);
+  const env = { service: svc, settings: await svc.getUserSettings(), now: NOW, userMessage: message };
+  const bad = await executeTool('set_water_target', { target_ml: 2450 }, env);
+  expect(bad.status).toBe('needs_clarification');
+  expect(confirm).not.toHaveBeenCalled();
+  const good = await executeTool('set_water_target', { target_ml: 3000 }, env);
+  expect(good.status).toBe('succeeded');
+  expect((await svc.getUserSettings()).dailyWaterTargetMl).toBe(3000);
+});
+
+it('independently validates all combined tool fields including valid water', async () => {
+  const svc = fresh();
+  vi.stubGlobal('confirm', () => true);
+  const message = 'Set my daily bulking targets to:\n- Calories: 2450 kcal\n- Protein: 90 g\n- Water: 3 L';
+  const outcome = await executeTool('set_bulking_targets', { calories_kcal: 2450, protein_g: 90, water_ml: 3000 }, { service: svc, settings: await svc.getUserSettings(), now: NOW, userMessage: message });
+  expect(outcome.payload).toMatchObject({ kind: 'bulking_targets', calories: 2450, protein: 90, water: 3000 });
+  expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: 2450, dailyProteinTargetG: 90, dailyWaterTargetMl: 3000 });
+});
+
+it('reports a partial combined tool result honestly even when a model claims every target was changed', async () => {
+  const svc = fresh();
+  vi.stubGlobal('confirm', () => true);
+  const r = await run(svc, 'set my water target to 3 L', [{ toolCalls: [call('set_bulking_targets', { calories_kcal: 2450, water_ml: 3000 })] }, { text: 'All targets were changed.' }]).p;
+  expect(r.assistantMessage).toMatch(/Not changed: calorie target/);
+  expect(r.assistantMessage).not.toContain('All targets were changed');
+  expect(await svc.getUserSettings()).toMatchObject({ dailyCalorieTarget: null, dailyWaterTargetMl: 3000 });
+});
+
+it('cannot claim success when a combined target tool saves nothing', async () => {
+  const svc = fresh();
+  vi.stubGlobal('confirm', () => true);
+  const r = await run(svc, 'set my water target to 3 L', [{ toolCalls: [call('set_bulking_targets', { water_ml: 2000 })] }, { text: 'Everything saved.' }]).p;
+  expect(r.assistantMessage).toMatch(/not saved/);
+  expect(r.assistantMessage).not.toContain('Everything saved');
+  expect((await svc.getUserSettings()).dailyWaterTargetMl ?? null).toBeNull();
 });
